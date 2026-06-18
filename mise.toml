@@ -1,0 +1,30 @@
+[tools]
+node = "24"
+
+[tasks.install]
+description = "Install npm dependencies"
+run = "npm install"
+
+[tasks.dev]
+description = "Run the TUI (interactive; no file watching)"
+run = "npm run dev"
+
+[tasks.start]
+description = "Run the TUI"
+run = "npm run start"
+
+[tasks.typecheck]
+description = "Type-check with tsc (no emit)"
+run = "npm run typecheck"
+
+[tasks.build]
+description = "Compile TypeScript to dist/"
+run = "npm run build"
+
+[tasks.test]
+description = "Run unit tests"
+run = "npm test"
+
+[tasks.fmt]
+description = "Format sources with prettier"
+run = "npm run fmt"
