@@ -6,22 +6,22 @@ import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-const version = (process.env.GAP_VERSION || process.argv[2] || pkg.version).replace(/^v/, '');
+const version = (process.env.K8SHH_VERSION || process.argv[2] || pkg.version).replace(/^v/, '');
 
 const dist = resolve(root, 'dist');
-const bundle = resolve(dist, 'gap-secrets.mjs');
+const bundle = resolve(dist, 'k8shh.mjs');
 if (!existsSync(bundle)) {
-  console.error('Bundle not found at dist/gap-secrets.mjs — run `npm run build:bundle` first.');
+  console.error('Bundle not found at dist/k8shh.mjs — run `npm run build:bundle` first.');
   process.exit(1);
 }
 
 // Stage the self-contained bundle plus docs/license into a versioned dir.
-const stageName = `gap-secrets-${version}`;
+const stageName = `k8shh-${version}`;
 const pkgRoot = resolve(dist, 'pkg');
 const stageDir = resolve(pkgRoot, stageName);
 rmSync(pkgRoot, { recursive: true, force: true });
 mkdirSync(stageDir, { recursive: true });
-cpSync(bundle, resolve(stageDir, 'gap-secrets.mjs'));
+cpSync(bundle, resolve(stageDir, 'k8shh.mjs'));
 for (const file of ['README.md', 'LICENSE']) {
   const src = resolve(root, file);
   if (existsSync(src)) cpSync(src, resolve(stageDir, file));

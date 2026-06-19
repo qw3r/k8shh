@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Resolve version from tag
-        run: echo "GAP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: echo "K8SHH_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Build self-contained release (bundle + tarball + sha256)
         run: mise run release:build
@@ -36,8 +36,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/gap-secrets-*.tar.gz \
-            dist/gap-secrets-*.tar.gz.sha256 \
+            dist/k8shh-*.tar.gz \
+            dist/k8shh-*.tar.gz.sha256 \
             --draft \
             --generate-notes \
             --title "$GITHUB_REF_NAME"
@@ -52,7 +52,7 @@ jobs:
           git fetch origin "$default_branch"
           git checkout -B "$default_branch" "origin/$default_branch"
           node scripts/update-formula.mjs
-          git add Formula/gap-secrets.rb
+          git add Formula/k8shh.rb
           if git diff --cached --quiet; then
             echo "Formula already up to date."
           else

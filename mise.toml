@@ -30,7 +30,7 @@ description = "Format sources with prettier"
 run = "npm run fmt"
 
 [tasks."build:bundle"]
-description = "Bundle the CLI into one self-contained file (dist/gap-secrets.mjs)"
+description = "Bundle the CLI into one self-contained file (dist/k8shh.mjs)"
 run = "npm run build:bundle"
 
 [tasks."release:build"]

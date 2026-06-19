@@ -1,4 +1,4 @@
-# gap-cli-secrets
+# k8shh
 
 Interactive Kubernetes **secret editor** in your terminal, built with [Ink](https://github.com/vadimdemedes/ink) (React + Yoga flexbox) and the official [`@kubernetes/client-node`](https://github.com/kubernetes-client/javascript) SDK.
 
@@ -10,7 +10,7 @@ Releases ship a single self-contained bundle; Homebrew only adds Node as a depen
 
 ```sh
 brew tap OWNER/REPO https://github.com/OWNER/REPO
-brew install gap-secrets
+brew install k8shh
 ```
 
 (Replace `OWNER/REPO`. The CI workflow fills these in automatically when it updates the formula.)
@@ -54,13 +54,13 @@ Save confirm: `y`/`Enter` to apply · `n`/`Esc` to cancel.
 
 ## Releasing
 
-A release is a single **self-contained** ESM bundle (`gap-secrets.mjs`, ~2 MB) with Ink, React, Yoga (WASM), and the Kubernetes client inlined — no `npm install` at install time; only Node is required at runtime.
+A release is a single **self-contained** ESM bundle (`k8shh.mjs`, ~2 MB) with Ink, React, Yoga (WASM), and the Kubernetes client inlined — no `npm install` at install time; only Node is required at runtime.
 
 Build and inspect locally:
 
 ```sh
-mise run release:build    # -> dist/gap-secrets-<version>.tar.gz (+ .sha256)
-mise run release:formula  # regenerate Formula/gap-secrets.rb from that tarball
+mise run release:build    # -> dist/k8shh-<version>.tar.gz (+ .sha256)
+mise run release:formula  # regenerate Formula/k8shh.rb from that tarball
 ```
 
 Cut a release (semantic versioning) and push the tag:
@@ -71,5 +71,3 @@ git push --follow-tags
 ```
 
 Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which builds the self-contained tarball, creates a **draft** GitHub release with the artifact + checksum, and commits the regenerated Homebrew formula to the default branch. Review and publish the draft to make `brew install` work.
-
-See [`PLAN.md`](./PLAN.md) for the design.

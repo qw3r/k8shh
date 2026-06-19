@@ -12,7 +12,7 @@ export interface LastSelection {
 function stateFilePath(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   const base = xdg && xdg.trim() !== '' ? xdg : join(homedir(), '.config');
-  return join(base, 'gap-cli-secrets', 'last-selection.json');
+  return join(base, 'k8shh', 'last-selection.json');
 }
 
 /** Read the remembered selection, or null if absent/unreadable. */

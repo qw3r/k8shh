@@ -4,8 +4,8 @@ import { App } from './app.js';
 
 // Injected at bundle time by esbuild (`define`); falls back to a dev marker
 // when running from source via tsx.
-declare const __GAP_VERSION__: string | undefined;
-const VERSION = typeof __GAP_VERSION__ === 'string' ? __GAP_VERSION__ : '0.0.0-dev';
+declare const __K8SHH_VERSION__: string | undefined;
+const VERSION = typeof __K8SHH_VERSION__ === 'string' ? __K8SHH_VERSION__ : '0.0.0-dev';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -14,9 +14,9 @@ if (argv.includes('--version') || argv.includes('-v')) {
 }
 if (argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(
-    `gap-secrets ${VERSION}\n\n` +
+    `k8shh ${VERSION}\n\n` +
       'Interactive Kubernetes secret editor (Ink/Yoga TUI).\n\n' +
-      'Usage: gap-secrets\n\n' +
+      'Usage: k8shh\n\n' +
       'Reads your default kubeconfig (same as kubectl). Pick a context, namespace,\n' +
       'and secret, then edit entries. Nothing is written to the cluster until you\n' +
       'confirm the diff on Save.\n',

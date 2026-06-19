@@ -5,8 +5,8 @@ import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-// CI can override the embedded version (e.g. from the git tag) via GAP_VERSION.
-const version = process.env.GAP_VERSION?.replace(/^v/, '') || pkg.version;
+// CI can override the embedded version (e.g. from the git tag) via K8SHH_VERSION.
+const version = process.env.K8SHH_VERSION?.replace(/^v/, '') || pkg.version;
 
 // Bundle the whole CLI (incl. Ink, React, Yoga's embedded WASM, and the k8s
 // client) into one ESM file. ESM is required because Ink's reconciler uses
@@ -19,8 +19,8 @@ await build({
   format: 'esm',
   minify: true,
   legalComments: 'none',
-  outfile: resolve(root, 'dist/gap-secrets.mjs'),
-  define: { __GAP_VERSION__: JSON.stringify(version) },
+  outfile: resolve(root, 'dist/k8shh.mjs'),
+  define: { __K8SHH_VERSION__: JSON.stringify(version) },
   // Ink pulls in react-devtools-core only under DEV=true; stub it out so the
   // bundle has zero runtime dependencies beyond Node itself.
   alias: { 'react-devtools-core': resolve(root, 'scripts/devtools-stub.mjs') },
@@ -36,4 +36,4 @@ await build({
   },
 });
 
-console.log('Bundled dist/gap-secrets.mjs');
+console.log('Bundled dist/k8shh.mjs');

@@ -1,10 +1,10 @@
 {
-  "name": "gap-cli-secrets",
+  "name": "k8shh",
   "version": "0.1.0",
   "description": "Interactive Kubernetes secret editor (Ink/Yoga TUI).",
   "type": "module",
   "bin": {
-    "gap-secrets": "dist/gap-secrets.mjs"
+    "k8shh": "dist/k8shh.mjs"
   },
   "files": [
     "dist"
