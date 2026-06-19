@@ -3,6 +3,7 @@ import { Box, Text, useInput } from 'ink';
 import type { Entry } from '../k8s/types.js';
 import { isJson, minify, pretty } from '../util/json.js';
 import { MultilineEditor } from './MultilineEditor.js';
+import { highlightJsonLine } from '../util/jsonHighlight.js';
 
 interface ValueEditorModalProps {
   entry: Entry;
@@ -94,6 +95,7 @@ export function ValueEditorModal({
             cursor={cursor}
             width={innerWidth}
             height={editorHeight}
+            highlightLine={json ? highlightJsonLine : undefined}
             onChange={(v, c) => {
               setDraft(v);
               setCursor(c);
@@ -103,7 +105,7 @@ export function ValueEditorModal({
         ) : viewLines.length > 0 ? (
           viewLines.map((l, i) => (
             <Text key={viewStart + i} wrap="truncate-end">
-              {l.length > 0 ? l : ' '}
+              {json && l.length > 0 ? highlightJsonLine(l) : l.length > 0 ? l : ' '}
             </Text>
           ))
         ) : (

@@ -10,6 +10,7 @@ export type EditingField = 'name' | 'value' | null;
 interface SecretRowProps {
   entry: Entry;
   selected: boolean;
+  selectedColumn: 'name' | 'value';
   status: RowStatus;
   nameWidth: number;
   valueWidth: number;
@@ -32,17 +33,17 @@ function marker(status: RowStatus): { ch: string; color?: string } {
   }
 }
 
-function ValuePreview({ entry }: { entry: Entry }) {
+function ValuePreview({ entry, highlight }: { entry: Entry; highlight: boolean }) {
   if (entry.binary) {
     return (
-      <Text dimColor wrap="truncate-end">
+      <Text dimColor inverse={highlight} wrap="truncate-end">
         {entry.value}
       </Text>
     );
   }
   const oneLine = entry.value.replace(/\n/g, '↵');
   return (
-    <Text wrap="truncate-end">
+    <Text inverse={highlight} wrap="truncate-end">
       {isJson(entry.value) ? <Text color="magenta">{'{} '}</Text> : null}
       {oneLine.length > 0 ? oneLine : <Text dimColor>(empty)</Text>}
     </Text>
@@ -53,6 +54,7 @@ function ValuePreview({ entry }: { entry: Entry }) {
 export function SecretRow({
   entry,
   selected,
+  selectedColumn,
   status,
   nameWidth,
   valueWidth,
@@ -62,6 +64,8 @@ export function SecretRow({
   onCancelEdit,
 }: SecretRowProps) {
   const m = marker(status);
+  const focusName = selected && selectedColumn === 'name';
+  const focusValue = selected && selectedColumn === 'value';
   return (
     <Box>
       <Text color={selected ? 'cyan' : undefined}>{selected ? '›' : ' '}</Text>
@@ -74,7 +78,12 @@ export function SecretRow({
             onCancel={onCancelEdit}
           />
         ) : (
-          <Text bold={selected} color={entry.key.trim() === '' ? 'red' : undefined} wrap="truncate-end">
+          <Text
+            inverse={focusName}
+            bold={selected && !focusName}
+            color={entry.key.trim() === '' ? 'red' : undefined}
+            wrap="truncate-end"
+          >
             {entry.key.trim() === '' ? '(unnamed)' : entry.key}
           </Text>
         )}
@@ -88,7 +97,7 @@ export function SecretRow({
             onCancel={onCancelEdit}
           />
         ) : (
-          <ValuePreview entry={entry} />
+          <ValuePreview entry={entry} highlight={focusValue} />
         )}
       </Box>
     </Box>

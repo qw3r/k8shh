@@ -21,10 +21,20 @@ function Chip({ label, value, active }: { label: string; value: string; active: 
   );
 }
 
-function Button({ label, active, color }: { label: string; active: boolean; color?: string }) {
+function Button({
+  label,
+  active,
+  color,
+  disabled = false,
+}: {
+  label: string;
+  active: boolean;
+  color?: string;
+  disabled?: boolean;
+}) {
   return (
     <Box marginLeft={1}>
-      <Text inverse={active} color={color}>{`[ ${label} ]`}</Text>
+      <Text inverse={active} color={color} dimColor={disabled}>{`[ ${label} ]`}</Text>
     </Box>
   );
 }
@@ -59,6 +69,7 @@ export function Toolbar({ state, dirty }: ToolbarProps) {
           label={dirty ? 'Save*' : 'Save'}
           active={active('save')}
           color={dirty ? 'yellow' : undefined}
+          disabled={!dirty}
         />
       </Box>
     </Box>

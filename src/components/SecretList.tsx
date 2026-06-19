@@ -7,11 +7,13 @@ interface SecretListProps {
   entries: Entry[];
   original: Entry[];
   selectedIndex: number;
+  selectedColumn: 'name' | 'value';
   rows: number;
   width: number;
   focused: boolean;
   editingId: string | null;
   editingField: EditingField;
+  emptyHint?: string;
   onCommitName: (id: string, key: string) => void;
   onCommitValue: (id: string, value: string) => void;
   onCancelEdit: () => void;
@@ -32,11 +34,13 @@ export function SecretList({
   entries,
   original,
   selectedIndex,
+  selectedColumn,
   rows,
   width,
   focused,
   editingId,
   editingField,
+  emptyHint,
   onCommitName,
   onCommitValue,
   onCancelEdit,
@@ -73,7 +77,10 @@ export function SecretList({
       </Box>
 
       {entries.length === 0 ? (
-        <Text dimColor>{'   '}(no entries — press “a” to add, or choose a secret above)</Text>
+        <Text dimColor>
+          {'   '}
+          {emptyHint ?? '(no entries — press “a” to add, or choose a secret above)'}
+        </Text>
       ) : (
         visible.map((entry, i) => {
           const idx = start + i;
@@ -82,6 +89,7 @@ export function SecretList({
               key={entry.id}
               entry={entry}
               selected={focused && idx === selectedIndex}
+              selectedColumn={selectedColumn}
               status={rowStatus(entry, originalByKey)}
               nameWidth={nameWidth}
               valueWidth={valueWidth}

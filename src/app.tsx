@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { K8sClient, describeError } from './k8s/client.js';
 import { buildMergePatch, computeChanges, findDuplicateKeys, isDirty } from './k8s/secrets.js';
@@ -9,6 +9,8 @@ import { SelectList } from './components/SelectList.js';
 import { StatusBar } from './components/StatusBar.js';
 import { ValueEditorModal } from './components/ValueEditorModal.js';
 import { DiffConfirmModal } from './components/DiffConfirmModal.js';
+import { FilterBar } from './components/FilterBar.js';
+import { loadLastSelection, saveLastSelection } from './state/persistence.js';
 
 /** Track terminal size and re-render on resize. */
 function useTerminalSize(): { columns: number; rows: number } {
@@ -94,6 +96,7 @@ export function App() {
       const loaded = await client.readSecret(namespace, name);
       dispatch({ type: 'loadedSecret', loaded });
       dispatch({ type: 'setStatus', status: null });
+      saveLastSelection({ context: client.getCurrentContext() || undefined, namespace, secret: name });
     } catch (e) {
       setError(e);
     } finally {
@@ -164,18 +167,41 @@ export function App() {
     }
     clientRef.current = client;
     const contexts = client.listContexts();
-    const current = client.getCurrentContext() || null;
-    dispatch({ type: 'setContexts', contexts, current });
-    if (current) {
-      const ns = client.getContextNamespace(current);
-      if (ns) dispatch({ type: 'setCurrentNamespace', namespace: ns });
-      void (async () => {
-        await loadNamespaces();
-        if (ns) await loadSecrets(ns);
-      })();
-    } else {
-      setInfo('No current context set — press Enter on “context” to choose one.');
+    const last = loadLastSelection();
+    const kubeCurrent = client.getCurrentContext() || null;
+
+    // Prefer the remembered context if it still exists in the kubeconfig.
+    let context = kubeCurrent;
+    if (last?.context && contexts.some((c) => c.name === last.context)) {
+      context = last.context;
     }
+    if (context && context !== kubeCurrent) {
+      try {
+        client.setContext(context);
+      } catch (e) {
+        setError(e);
+      }
+    }
+    dispatch({ type: 'setContexts', contexts, current: context });
+
+    if (!context) {
+      setInfo('No current context set — press Enter on “context” to choose one.');
+      return;
+    }
+
+    // Namespace: remembered (only when its context matches) else the context default.
+    const rememberedNs = last?.context === context ? (last?.namespace ?? null) : null;
+    const ns = rememberedNs ?? client.getContextNamespace(context);
+    if (ns) dispatch({ type: 'setCurrentNamespace', namespace: ns });
+
+    const rememberedSecret =
+      last?.context === context && last?.namespace === ns ? (last?.secret ?? null) : null;
+
+    void (async () => {
+      await loadNamespaces();
+      if (ns) await loadSecrets(ns);
+      if (ns && rememberedSecret) await loadSecret(ns, rememberedSecret);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -194,7 +220,17 @@ export function App() {
   const dirty = isDirty(state.original, state.entries);
   const changes = computeChanges(state.original, state.entries);
   const mode = state.mode;
-  const selected = state.entries[state.selectedIndex];
+
+  const filteredEntries = useMemo(() => {
+    const q = state.filter.trim().toLowerCase();
+    if (q === '') return state.entries;
+    return state.entries.filter((e) => e.key.toLowerCase().includes(q) || e.value.toLowerCase().includes(q));
+  }, [state.entries, state.filter]);
+
+  const selectedIndex = Math.min(state.selectedIndex, Math.max(0, filteredEntries.length - 1));
+  const selected = filteredEntries[selectedIndex];
+  const filterBarShown = mode.kind === 'filter' || state.filter.length > 0;
+  const listRows = Math.max(1, listBodyRows - (filterBarShown ? 1 : 0));
 
   // ---- action helpers -----------------------------------------------------
   const handleSave = (): void => {
@@ -338,6 +374,8 @@ export function App() {
       if (input === 's') return handleSave();
       if (input === 'r') return handleReload();
       if (input === 'x') return handleReset();
+      if (input === '/') return dispatch({ type: 'openFilter' });
+      if (key.escape && state.filter) return dispatch({ type: 'setFilter', value: '' });
 
       if (state.focusZone === 'toolbar') {
         if (key.leftArrow || input === 'h') return dispatch({ type: 'toolbarMove', delta: -1 });
@@ -348,19 +386,26 @@ export function App() {
       }
 
       // list zone
-      if (key.upArrow || input === 'k') return dispatch({ type: 'listMove', delta: -1 });
-      if (key.downArrow || input === 'j') return dispatch({ type: 'listMove', delta: 1 });
-      if (key.pageUp) return dispatch({ type: 'listMove', delta: -state.viewportRows });
-      if (key.pageDown) return dispatch({ type: 'listMove', delta: state.viewportRows });
-      if (key.home) return dispatch({ type: 'listTo', index: 0 });
-      if (key.end) return dispatch({ type: 'listTo', index: state.entries.length - 1 });
+      const count = filteredEntries.length;
+      if (key.upArrow || input === 'k') return dispatch({ type: 'listMove', delta: -1, count });
+      if (key.downArrow || input === 'j') return dispatch({ type: 'listMove', delta: 1, count });
+      if (key.leftArrow) return dispatch({ type: 'selectColumn', column: 'name' });
+      if (key.rightArrow) return dispatch({ type: 'selectColumn', column: 'value' });
+      if (key.pageUp) return dispatch({ type: 'listMove', delta: -state.viewportRows, count });
+      if (key.pageDown) return dispatch({ type: 'listMove', delta: state.viewportRows, count });
+      if (key.home) return dispatch({ type: 'listTo', index: 0, count });
+      if (key.end) return dispatch({ type: 'listTo', index: count - 1, count });
       if (key.return) {
-        if (selected) dispatch({ type: 'openValueModal', entryId: selected.id });
-        return;
+        if (!selected) return;
+        if (state.selectedColumn === 'name') return beginEdit('name');
+        return dispatch({ type: 'openValueModal', entryId: selected.id });
       }
       if (input === 'n') return beginEdit('name');
       if (input === 'v') return beginEdit('value');
-      if (input === 'a') return dispatch({ type: 'addEntry' });
+      if (input === 'a') {
+        if (state.filter) dispatch({ type: 'setFilter', value: '' });
+        return dispatch({ type: 'addEntry' });
+      }
       if (input === 'd') {
         if (selected) dispatch({ type: 'deleteEntry', entryId: selected.id });
         return;
@@ -378,7 +423,7 @@ export function App() {
     mode.kind === 'browse'
       ? state.focusZone === 'toolbar'
         ? '←/→ select · Enter open/activate · ↓ list · s save · r reload · x reset · q quit'
-        : '↑/↓ move · Enter value editor · n name · v value · a add · d delete · Tab toolbar · s save · q quit'
+        : '↑/↓ row · ←/→ col · Enter edit · / search · n name · v value · a add · d del · s save · q quit'
       : '';
 
   function renderMiddle(): React.ReactNode {
@@ -457,19 +502,37 @@ export function App() {
         );
       default:
         return (
-          <SecretList
-            entries={state.entries}
-            original={state.original}
-            selectedIndex={state.selectedIndex}
-            rows={listBodyRows}
-            width={innerWidth}
-            focused={state.focusZone === 'list'}
-            editingId={editingId}
-            editingField={editingField}
-            onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
-            onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
-            onCancelEdit={cancelEdit}
-          />
+          <>
+            {filterBarShown && (
+              <FilterBar
+                query={state.filter}
+                active={mode.kind === 'filter'}
+                matchCount={filteredEntries.length}
+                total={state.entries.length}
+                onChange={(v) => dispatch({ type: 'setFilter', value: v })}
+                onSubmit={() => dispatch({ type: 'closeMode' })}
+                onCancel={() => {
+                  dispatch({ type: 'setFilter', value: '' });
+                  dispatch({ type: 'closeMode' });
+                }}
+              />
+            )}
+            <SecretList
+              entries={filteredEntries}
+              original={state.original}
+              selectedIndex={selectedIndex}
+              rows={listRows}
+              width={innerWidth}
+              focused={state.focusZone === 'list'}
+              selectedColumn={state.selectedColumn}
+              editingId={editingId}
+              editingField={editingField}
+              emptyHint={state.filter ? 'no entries match the search' : undefined}
+              onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
+              onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
+              onCancelEdit={cancelEdit}
+            />
+          </>
         );
     }
   }

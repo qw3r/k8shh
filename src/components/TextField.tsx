@@ -4,54 +4,40 @@ import { Text, useInput } from 'ink';
 interface TextFieldProps {
   initialValue: string;
   isActive?: boolean;
+  /** Called on every value change (for live filtering, etc.). */
+  onChange?: (value: string) => void;
   /** Called with the final value when Enter is pressed. */
   onSubmit: (value: string) => void;
   /** Called when Escape is pressed. */
   onCancel: () => void;
 }
 
-/** A minimal single-line text input with a visible cursor, built on Ink core. */
-export function TextField({ initialValue, isActive = true, onSubmit, onCancel }: TextFieldProps) {
+export function TextField({ initialValue, isActive = true, onChange, onSubmit, onCancel }: TextFieldProps) {
   const [value, setValue] = useState(initialValue);
   const [cursor, setCursor] = useState(initialValue.length);
 
+  const apply = (next: string, nextCursor: number): void => {
+    setValue(next);
+    setCursor(nextCursor);
+    onChange?.(next);
+  };
+
   useInput(
     (input, key) => {
-      if (key.return) {
-        onSubmit(value);
-        return;
-      }
-      if (key.escape) {
-        onCancel();
-        return;
-      }
-      if (key.leftArrow) {
-        setCursor((c) => Math.max(0, c - 1));
-        return;
-      }
-      if (key.rightArrow) {
-        setCursor((c) => Math.min(value.length, c + 1));
-        return;
-      }
+      if (key.return) return onSubmit(value);
+      if (key.escape) return onCancel();
+      if (key.leftArrow) return setCursor(Math.max(0, cursor - 1));
+      if (key.rightArrow) return setCursor(Math.min(value.length, cursor + 1));
       if (key.backspace || key.delete) {
-        setCursor((c) => {
-          if (c <= 0) return c;
-          setValue((v) => v.slice(0, c - 1) + v.slice(c));
-          return c - 1;
-        });
+        if (cursor > 0) apply(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
         return;
       }
       // Ignore navigation / modifier keys; only printable input below.
-      if (key.ctrl || key.meta || key.tab || key.upArrow || key.downArrow) {
-        return;
-      }
+      if (key.ctrl || key.meta || key.tab || key.upArrow || key.downArrow) return;
       if (input) {
         const clean = input.replace(/[\r\n]/g, '');
         if (clean.length === 0) return;
-        setCursor((c) => {
-          setValue((v) => v.slice(0, c) + clean + v.slice(c));
-          return c + clean.length;
-        });
+        apply(value.slice(0, cursor) + clean + value.slice(cursor), cursor + clean.length);
       }
     },
     { isActive },

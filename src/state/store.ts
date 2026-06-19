@@ -25,6 +25,7 @@ export type PendingAction =
 /** Overlay / editing state machine. Only the active mode consumes input. */
 export type Mode =
   | { kind: 'browse' }
+  | { kind: 'filter' }
   | { kind: 'select'; which: SelectKind }
   | { kind: 'editName'; entryId: string }
   | { kind: 'editValue'; entryId: string }
@@ -51,6 +52,8 @@ export interface AppState {
   focusZone: FocusZone;
   toolbarIndex: number;
   selectedIndex: number;
+  selectedColumn: 'name' | 'value';
+  filter: string;
   viewportRows: number;
   mode: Mode;
   loading: boolean;
@@ -71,6 +74,8 @@ export const initialState: AppState = {
   focusZone: 'toolbar',
   toolbarIndex: 0,
   selectedIndex: 0,
+  selectedColumn: 'name',
+  filter: '',
   viewportRows: 10,
   mode: { kind: 'browse' },
   loading: false,
@@ -91,8 +96,11 @@ export type Action =
   | { type: 'focusZone'; zone: FocusZone }
   | { type: 'toolbarMove'; delta: number }
   | { type: 'setToolbarIndex'; index: number }
-  | { type: 'listMove'; delta: number }
-  | { type: 'listTo'; index: number }
+  | { type: 'listMove'; delta: number; count?: number }
+  | { type: 'listTo'; index: number; count?: number }
+  | { type: 'selectColumn'; column: 'name' | 'value' }
+  | { type: 'setFilter'; value: string }
+  | { type: 'openFilter' }
   | { type: 'setViewportRows'; rows: number }
   | { type: 'openSelect'; which: SelectKind }
   | { type: 'closeMode' }
@@ -152,6 +160,8 @@ export function reducer(state: AppState, action: Action): AppState {
         original: action.loaded.entries,
         entries,
         selectedIndex: 0,
+        selectedColumn: 'name',
+        filter: '',
         focusZone: 'list',
         mode: { kind: 'browse' },
       };
@@ -166,6 +176,7 @@ export function reducer(state: AppState, action: Action): AppState {
         original: [],
         entries: [],
         selectedIndex: 0,
+        filter: '',
         mode: { kind: 'browse' },
       };
 
@@ -183,16 +194,28 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, toolbarIndex: clamp(action.index, 0, TOOLBAR_CONTROLS.length - 1) };
 
     case 'listMove': {
-      if (state.entries.length === 0) return { ...state, selectedIndex: 0 };
+      const count = action.count ?? state.entries.length;
+      if (count === 0) return { ...state, selectedIndex: 0 };
       return {
         ...state,
         focusZone: 'list',
-        selectedIndex: clamp(state.selectedIndex + action.delta, 0, state.entries.length - 1),
+        selectedIndex: clamp(state.selectedIndex + action.delta, 0, count - 1),
       };
     }
 
-    case 'listTo':
-      return { ...state, selectedIndex: clamp(action.index, 0, Math.max(0, state.entries.length - 1)) };
+    case 'listTo': {
+      const count = action.count ?? state.entries.length;
+      return { ...state, selectedIndex: clamp(action.index, 0, Math.max(0, count - 1)) };
+    }
+
+    case 'selectColumn':
+      return { ...state, focusZone: 'list', selectedColumn: action.column };
+
+    case 'setFilter':
+      return { ...state, filter: action.value, selectedIndex: 0 };
+
+    case 'openFilter':
+      return { ...state, focusZone: 'list', mode: { kind: 'filter' } };
 
     case 'setViewportRows':
       return { ...state, viewportRows: Math.max(1, action.rows) };
@@ -238,6 +261,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         entries,
         selectedIndex: entries.length - 1,
+        selectedColumn: 'name',
         focusZone: 'list',
         mode: { kind: 'editName', entryId: entry.id },
       };

@@ -7,6 +7,8 @@ interface MultilineEditorProps {
   width: number;
   height: number;
   isActive?: boolean;
+  /** Optional per-line renderer (e.g. JSON syntax highlighting) for non-cursor lines. */
+  highlightLine?: (line: string) => React.ReactNode;
   /** Emit the new text and cursor index after each edit/navigation. */
   onChange: (value: string, cursor: number) => void;
   /** Escape pressed — leave edit sub-mode. */
@@ -69,6 +71,7 @@ export function MultilineEditor({
   width,
   height,
   isActive = true,
+  highlightLine,
   onChange,
   onExit,
 }: MultilineEditorProps) {
@@ -136,7 +139,7 @@ export function MultilineEditor({
     } else {
       rows.push(
         <Text key={idx} wrap="truncate-end">
-          {text.length > 0 ? text : ' '}
+          {highlightLine && text.length > 0 ? highlightLine(text) : text.length > 0 ? text : ' '}
         </Text>,
       );
     }
