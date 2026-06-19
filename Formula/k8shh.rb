@@ -1,10 +1,10 @@
 class K8shh < Formula
   desc "Interactive Kubernetes secret editor (Ink/Yoga TUI)"
-  homepage "https://github.com/OWNER/REPO"
-  url "https://github.com/OWNER/REPO/releases/download/v0.1.0/k8shh-0.1.0.tar.gz"
-  sha256 "077eb45afa4494a618d6363d6769ac283236653b252ee8d34bdd0f70860c4ead"
+  homepage "https://github.com/qw3r/k8shh"
+  url "https://github.com/qw3r/k8shh/releases/download/v0.2.0/k8shh-0.2.0.tar.gz"
+  sha256 "05f3646b264bdec03dd2fec11ed233cdc9675bc8a2cc19f41087f1ef88f5c644"
   license "MIT"
-  version "0.1.0"
+  version "0.2.0"
 
   depends_on "node"
 
