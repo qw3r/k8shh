@@ -28,3 +28,27 @@ run = "npm test"
 [tasks.fmt]
 description = "Format sources with prettier"
 run = "npm run fmt"
+
+[tasks."build:bundle"]
+description = "Bundle the CLI into one self-contained file (dist/gap-secrets.mjs)"
+run = "npm run build:bundle"
+
+[tasks."release:build"]
+description = "Build the self-contained release tarball + sha256"
+run = ["npm run build:bundle", "node scripts/package-release.mjs"]
+
+[tasks."release:formula"]
+description = "Regenerate the Homebrew formula from the built tarball"
+run = "node scripts/update-formula.mjs"
+
+[tasks."release:patch"]
+description = "Bump patch version and create a vX.Y.Z git tag"
+run = "npm version patch -m 'release: v%s'"
+
+[tasks."release:minor"]
+description = "Bump minor version and create a vX.Y.Z git tag"
+run = "npm version minor -m 'release: v%s'"
+
+[tasks."release:major"]
+description = "Bump major version and create a vX.Y.Z git tag"
+run = "npm version major -m 'release: v%s'"

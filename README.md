@@ -4,6 +4,17 @@ Interactive Kubernetes **secret editor** in your terminal, built with [Ink](http
 
 It treats a Secret's `data` keys as an application's environment variables: pick a context → namespace → secret, then edit each `NAME = VALUE` pair. Large/JSON values can be opened in a fullscreen modal, pretty-printed, and edited. Saving shows a diff and writes back **only the changed keys** via a merge patch.
 
+## Install (Homebrew)
+
+Releases ship a single self-contained bundle; Homebrew only adds Node as a dependency. Once a release is published:
+
+```sh
+brew tap OWNER/REPO https://github.com/OWNER/REPO
+brew install gap-secrets
+```
+
+(Replace `OWNER/REPO`. The CI workflow fills these in automatically when it updates the formula.)
+
 ## Requirements
 
 - A working `kubectl` context (this app reads your default kubeconfig — the same `$KUBECONFIG` / `~/.kube/config` that kubectl uses). No cluster credentials are stored by this tool.
@@ -40,5 +51,25 @@ Save confirm: `y`/`Enter` to apply · `n`/`Esc` to cancel.
 - Nothing is written to the cluster until you confirm the diff on **Save**.
 - Only changed/added/removed keys are patched (`stringData` for upserts, `data: { key: null }` for deletes); other keys are left untouched.
 - Non-UTF8 (binary) secret values are shown read-only to avoid corrupting them.
+
+## Releasing
+
+A release is a single **self-contained** ESM bundle (`gap-secrets.mjs`, ~2 MB) with Ink, React, Yoga (WASM), and the Kubernetes client inlined — no `npm install` at install time; only Node is required at runtime.
+
+Build and inspect locally:
+
+```sh
+mise run release:build    # -> dist/gap-secrets-<version>.tar.gz (+ .sha256)
+mise run release:formula  # regenerate Formula/gap-secrets.rb from that tarball
+```
+
+Cut a release (semantic versioning) and push the tag:
+
+```sh
+mise run release:patch    # or release:minor / release:major  (npm version -> vX.Y.Z tag)
+git push --follow-tags
+```
+
+Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which builds the self-contained tarball, creates a **draft** GitHub release with the artifact + checksum, and commits the regenerated Homebrew formula to the default branch. Review and publish the draft to make `brew install` work.
 
 See [`PLAN.md`](./PLAN.md) for the design.

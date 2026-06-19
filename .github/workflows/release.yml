@@ -1,0 +1,61 @@
+name: release
+
+# Trigger by pushing a semver tag, e.g. `git push --follow-tags` after
+# `mise run release:patch` (which runs `npm version` and tags vX.Y.Z).
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up toolchain (mise -> Node 24)
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve version from tag
+        run: echo "GAP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build self-contained release (bundle + tarball + sha256)
+        run: mise run release:build
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/gap-secrets-*.tar.gz \
+            dist/gap-secrets-*.tar.gz.sha256 \
+            --draft \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"
+
+      - name: Update Homebrew formula on the default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          default_branch="${{ github.event.repository.default_branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$default_branch"
+          git checkout -B "$default_branch" "origin/$default_branch"
+          node scripts/update-formula.mjs
+          git add Formula/gap-secrets.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+          else
+            git commit -m "brew: update formula to ${GITHUB_REF_NAME}"
+            git push origin "$default_branch"
+          fi
