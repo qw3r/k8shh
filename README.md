@@ -9,11 +9,9 @@ It treats a Secret's `data` keys as an application's environment variables: pick
 Releases ship a single self-contained bundle; Homebrew only adds Node as a dependency. Once a release is published:
 
 ```sh
-brew tap OWNER/REPO https://github.com/OWNER/REPO
+brew tap qw3r/k8shh https://github.com/qw3r/k8shh
 brew install k8shh
 ```
-
-(Replace `OWNER/REPO`. The CI workflow fills these in automatically when it updates the formula.)
 
 ## Requirements
 
