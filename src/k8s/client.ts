@@ -1,4 +1,5 @@
-import { CoreV1Api, KubeConfig, PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
+import { AppsV1Api, CoreV1Api, KubeConfig, PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
+import type { V1Deployment } from '@kubernetes/client-node';
 import type { ContextInfo, LoadedSecret, MergePatchBody, SecretRef } from './types.js';
 import { entriesFromData } from './secrets.js';
 
@@ -10,11 +11,13 @@ import { entriesFromData } from './secrets.js';
 export class K8sClient {
   private kc: KubeConfig;
   private core: CoreV1Api;
+  private apps: AppsV1Api;
 
   constructor() {
     this.kc = new KubeConfig();
     this.kc.loadFromDefault();
     this.core = this.kc.makeApiClient(CoreV1Api);
+    this.apps = this.kc.makeApiClient(AppsV1Api);
   }
 
   /** All contexts defined in the kubeconfig. */
@@ -35,6 +38,7 @@ export class K8sClient {
   setContext(name: string): void {
     this.kc.setCurrentContext(name);
     this.core = this.kc.makeApiClient(CoreV1Api);
+    this.apps = this.kc.makeApiClient(AppsV1Api);
   }
 
   /** The default namespace declared on a context, if any. */
@@ -51,12 +55,12 @@ export class K8sClient {
       .sort((a, b) => a.localeCompare(b));
   }
 
-  /** List all secrets in a namespace (no type filter), sorted by name. */
+  /** List Opaque secrets in a namespace, sorted by name. */
   async listSecrets(namespace: string): Promise<SecretRef[]> {
     const res = await this.core.listNamespacedSecret({ namespace });
     return res.items
       .map((s) => ({ name: s.metadata?.name ?? '', type: s.type ?? 'Opaque' }))
-      .filter((s) => s.name !== '')
+      .filter((s) => s.name !== '' && s.type === 'Opaque')
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -83,6 +87,62 @@ export class K8sClient {
     );
     return updated.metadata?.resourceVersion ?? null;
   }
+
+  /** List deployments in a namespace. */
+  async listDeployments(namespace: string): Promise<V1Deployment[]> {
+    const res = await this.apps.listNamespacedDeployment({ namespace });
+    return res.items;
+  }
+
+  /**
+   * Rolling-restart every deployment in the namespace that references
+   * `secretName` (via envFrom, env secretKeyRef, mounted/projected secret
+   * volumes, or image pull secrets). Returns the restarted deployment names.
+   */
+  async restartDeploymentsUsingSecret(namespace: string, secretName: string): Promise<string[]> {
+    const targets = (await this.listDeployments(namespace)).filter((d) =>
+      deploymentUsesSecret(d, secretName),
+    );
+    const restartedAt = new Date().toISOString();
+    const names: string[] = [];
+    for (const dep of targets) {
+      const name = dep.metadata?.name;
+      if (!name) continue;
+      await this.apps.patchNamespacedDeployment(
+        {
+          name,
+          namespace,
+          body: {
+            spec: {
+              template: {
+                metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': restartedAt } },
+              },
+            },
+          },
+        },
+        setHeaderOptions('Content-Type', PatchStrategy.StrategicMergePatch),
+      );
+      names.push(name);
+    }
+    return names;
+  }
+}
+
+/** Whether a deployment's pod template references the named secret. */
+function deploymentUsesSecret(dep: V1Deployment, secret: string): boolean {
+  const spec = dep.spec?.template?.spec;
+  if (!spec) return false;
+  const containers = [...(spec.containers ?? []), ...(spec.initContainers ?? [])];
+  for (const c of containers) {
+    for (const ef of c.envFrom ?? []) if (ef.secretRef?.name === secret) return true;
+    for (const e of c.env ?? []) if (e.valueFrom?.secretKeyRef?.name === secret) return true;
+  }
+  for (const v of spec.volumes ?? []) {
+    if (v.secret?.secretName === secret) return true;
+    for (const src of v.projected?.sources ?? []) if (src.secret?.name === secret) return true;
+  }
+  for (const ips of spec.imagePullSecrets ?? []) if (ips.name === secret) return true;
+  return false;
 }
 
 /** Extract a human-friendly message from a client-node / fetch error. */

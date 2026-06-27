@@ -10,7 +10,7 @@ export interface Status {
 }
 
 /** Toolbar controls, left to right. */
-export const TOOLBAR_CONTROLS = ['context', 'namespace', 'secret', 'reload', 'reset', 'save'] as const;
+export const TOOLBAR_CONTROLS = ['context', 'namespace', 'secret', 'reload', 'reset', 'save', 'restart'] as const;
 export type ToolbarControl = (typeof TOOLBAR_CONTROLS)[number];
 
 /** A deferred action to run after the user confirms discarding unsaved edits. */
@@ -58,6 +58,7 @@ export interface AppState {
   mode: Mode;
   loading: boolean;
   status: Status | null;
+  restartOnSave: boolean;
 }
 
 export const initialState: AppState = {
@@ -80,6 +81,7 @@ export const initialState: AppState = {
   mode: { kind: 'browse' },
   loading: false,
   status: null,
+  restartOnSave: true,
 };
 
 export type Action =
@@ -91,7 +93,7 @@ export type Action =
   | { type: 'setCurrentNamespace'; namespace: string | null }
   | { type: 'setSecrets'; secrets: SecretRef[] }
   | { type: 'setCurrentSecret'; name: string | null }
-  | { type: 'loadedSecret'; loaded: LoadedSecret }
+  | { type: 'loadedSecret'; loaded: LoadedSecret; focusList?: boolean }
   | { type: 'clearSecret' }
   | { type: 'focusZone'; zone: FocusZone }
   | { type: 'toolbarMove'; delta: number }
@@ -113,6 +115,7 @@ export type Action =
   | { type: 'addEntry' }
   | { type: 'deleteEntry'; entryId: string }
   | { type: 'requestSave' }
+  | { type: 'toggleRestartOnSave' }
   | { type: 'savedOk'; resourceVersion: string | null }
   | { type: 'resetEdits' }
   | { type: 'requestDiscard'; pending: PendingAction };
@@ -162,7 +165,7 @@ export function reducer(state: AppState, action: Action): AppState {
         selectedIndex: 0,
         selectedColumn: 'name',
         filter: '',
-        focusZone: 'list',
+        focusZone: action.focusList === false ? state.focusZone : 'list',
         mode: { kind: 'browse' },
       };
     }
@@ -281,6 +284,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'requestSave':
       return { ...state, mode: { kind: 'confirmSave' } };
+
+    case 'toggleRestartOnSave':
+      return { ...state, restartOnSave: !state.restartOnSave };
 
     case 'savedOk': {
       // Promote the working copy to the new pristine snapshot.

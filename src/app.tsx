@@ -88,13 +88,13 @@ export function App() {
     }
   }
 
-  async function loadSecret(namespace: string, name: string): Promise<void> {
+  async function loadSecret(namespace: string, name: string, focusList = true): Promise<void> {
     const client = clientRef.current;
     if (!client) return;
     dispatch({ type: 'setLoading', loading: true });
     try {
       const loaded = await client.readSecret(namespace, name);
-      dispatch({ type: 'loadedSecret', loaded });
+      dispatch({ type: 'loadedSecret', loaded, focusList });
       dispatch({ type: 'setStatus', status: null });
       saveLastSelection({ context: client.getCurrentContext() || undefined, namespace, secret: name });
     } catch (e) {
@@ -139,16 +139,53 @@ export function App() {
     if (state.currentNamespace) await loadSecret(state.currentNamespace, name);
   }
 
-  async function performSave(): Promise<void> {
+  async function performSave(restart: boolean): Promise<void> {
     const client = clientRef.current;
-    if (!client || !state.currentNamespace || !state.currentSecret) return;
+    const namespace = state.currentNamespace;
+    const secret = state.currentSecret;
+    if (!client || !namespace || !secret) return;
     dispatch({ type: 'setLoading', loading: true });
     try {
       const patch = buildMergePatch(state.original, state.entries);
-      await client.patchSecret(state.currentNamespace, state.currentSecret, patch);
-      const loaded = await client.readSecret(state.currentNamespace, state.currentSecret);
+      await client.patchSecret(namespace, secret, patch);
+      let note = '';
+      if (restart) {
+        try {
+          const names = await client.restartDeploymentsUsingSecret(namespace, secret);
+          note = names.length > 0 ? ` Restarted ${names.length} deployment(s).` : ' No dependent deployments.';
+        } catch (e) {
+          note = ` (restart failed: ${describeError(e)})`;
+        }
+      }
+      const loaded = await client.readSecret(namespace, secret);
       dispatch({ type: 'loadedSecret', loaded });
-      dispatch({ type: 'setStatus', status: { kind: 'success', text: 'Saved changes to the cluster.' } });
+      dispatch({ type: 'setStatus', status: { kind: 'success', text: `Saved changes to the cluster.${note}` } });
+    } catch (e) {
+      setError(e);
+    } finally {
+      dispatch({ type: 'setLoading', loading: false });
+    }
+  }
+
+  async function performRestart(): Promise<void> {
+    const client = clientRef.current;
+    if (!client || !state.currentNamespace || !state.currentSecret) {
+      setInfo('No secret loaded.');
+      return;
+    }
+    dispatch({ type: 'setLoading', loading: true });
+    try {
+      const names = await client.restartDeploymentsUsingSecret(state.currentNamespace, state.currentSecret);
+      dispatch({
+        type: 'setStatus',
+        status: {
+          kind: 'success',
+          text:
+            names.length > 0
+              ? `Rolling-restarted ${names.length} deployment(s): ${names.join(', ')}`
+              : 'No deployments reference this secret.',
+        },
+      });
     } catch (e) {
       setError(e);
     } finally {
@@ -194,13 +231,17 @@ export function App() {
     const ns = rememberedNs ?? client.getContextNamespace(context);
     if (ns) dispatch({ type: 'setCurrentNamespace', namespace: ns });
 
+    // Start focused on the secret selector when context + namespace are known;
+    // keep focus on the toolbar during the initial load (don't jump to the list).
+    dispatch({ type: 'setToolbarIndex', index: TOOLBAR_CONTROLS.indexOf(ns ? 'secret' : 'namespace') });
+
     const rememberedSecret =
       last?.context === context && last?.namespace === ns ? (last?.secret ?? null) : null;
 
     void (async () => {
       await loadNamespaces();
       if (ns) await loadSecrets(ns);
-      if (ns && rememberedSecret) await loadSecret(ns, rememberedSecret);
+      if (ns && rememberedSecret) await loadSecret(ns, rememberedSecret, false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -312,6 +353,9 @@ export function App() {
         break;
       case 'save':
         handleSave();
+        break;
+      case 'restart':
+        void performRestart();
         break;
     }
   };
@@ -485,9 +529,12 @@ export function App() {
             changes={changes}
             width={size.columns}
             height={middleRows}
+            restartOnSave={state.restartOnSave}
+            onToggleRestart={() => dispatch({ type: 'toggleRestartOnSave' })}
             onConfirm={() => {
+              const restart = state.restartOnSave;
               dispatch({ type: 'closeMode' });
-              void performSave();
+              void performSave(restart);
             }}
             onCancel={() => dispatch({ type: 'closeMode' })}
           />

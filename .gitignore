@@ -41,3 +41,4 @@ mise.local.toml
 .idea/
 *.swp
 .DS_Store
+.claude/

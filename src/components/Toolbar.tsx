@@ -71,6 +71,7 @@ export function Toolbar({ state, dirty }: ToolbarProps) {
           color={dirty ? 'yellow' : undefined}
           disabled={!dirty}
         />
+        <Button label="Restart" active={active('restart')} disabled={!state.currentSecret} />
       </Box>
     </Box>
   );

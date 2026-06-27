@@ -6,6 +6,8 @@ interface DiffConfirmModalProps {
   changes: EntryChange[];
   width: number;
   height: number;
+  restartOnSave: boolean;
+  onToggleRestart: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -51,16 +53,25 @@ function ChangeLine({ change, width }: { change: EntryChange; width: number }) {
 }
 
 /** Shows the pending changes and asks the user to confirm before patching. */
-export function DiffConfirmModal({ changes, width, height, onConfirm, onCancel }: DiffConfirmModalProps) {
+export function DiffConfirmModal({
+  changes,
+  width,
+  height,
+  restartOnSave,
+  onToggleRestart,
+  onConfirm,
+  onCancel,
+}: DiffConfirmModalProps) {
   useInput((input, key) => {
     if (key.escape || input === 'n') return onCancel();
+    if (input === ' ' || input === 'r') return onToggleRestart();
     if (key.return || input === 'y') {
       if (changes.length > 0) onConfirm();
       else onCancel();
     }
   });
 
-  const bodyHeight = Math.max(1, height - 4);
+  const bodyHeight = Math.max(1, height - 5);
   const shown = changes.slice(0, bodyHeight);
   const overflow = changes.length - shown.length;
 
@@ -88,8 +99,13 @@ export function DiffConfirmModal({ changes, width, height, onConfirm, onCancel }
           </>
         )}
       </Box>
+      <Text color={restartOnSave ? 'green' : undefined}>
+        {restartOnSave ? '[x]' : '[ ]'} Rolling-restart deployments using this secret
+      </Text>
       <Text dimColor>
-        {changes.length > 0 ? 'Patch only these keys?  y/Enter confirm · n/Esc cancel' : 'Esc to close'}
+        {changes.length > 0
+          ? 'y/Enter confirm · space toggle restart · n/Esc cancel'
+          : 'Esc to close'}
       </Text>
     </Box>
   );
