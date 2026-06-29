@@ -2,6 +2,7 @@ import { AppsV1Api, CoreV1Api, KubeConfig, PatchStrategy, setHeaderOptions } fro
 import type { V1Deployment } from '@kubernetes/client-node';
 import type { ContextInfo, LoadedSecret, MergePatchBody, SecretRef } from './types.js';
 import { entriesFromData } from './secrets.js';
+import { type AppConfig, isSecretHidden, loadConfig } from '../state/config.js';
 
 /**
  * Thin wrapper around `@kubernetes/client-node` that loads the default
@@ -12,12 +13,14 @@ export class K8sClient {
   private kc: KubeConfig;
   private core: CoreV1Api;
   private apps: AppsV1Api;
+  private config: AppConfig;
 
   constructor() {
     this.kc = new KubeConfig();
     this.kc.loadFromDefault();
     this.core = this.kc.makeApiClient(CoreV1Api);
     this.apps = this.kc.makeApiClient(AppsV1Api);
+    this.config = loadConfig();
   }
 
   /** All contexts defined in the kubeconfig. */
@@ -55,12 +58,12 @@ export class K8sClient {
       .sort((a, b) => a.localeCompare(b));
   }
 
-  /** List Opaque secrets in a namespace, sorted by name. */
+  /** List Opaque secrets in a namespace (minus configured exclusions), sorted by name. */
   async listSecrets(namespace: string): Promise<SecretRef[]> {
     const res = await this.core.listNamespacedSecret({ namespace });
     return res.items
       .map((s) => ({ name: s.metadata?.name ?? '', type: s.type ?? 'Opaque' }))
-      .filter((s) => s.name !== '' && s.type === 'Opaque')
+      .filter((s) => s.name !== '' && s.type === 'Opaque' && !isSecretHidden(s.name, this.config))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
