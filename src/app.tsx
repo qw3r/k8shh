@@ -424,7 +424,6 @@ export function App() {
       if (state.focusZone === 'toolbar') {
         if (key.leftArrow || input === 'h') return dispatch({ type: 'toolbarMove', delta: -1 });
         if (key.rightArrow || input === 'l') return dispatch({ type: 'toolbarMove', delta: 1 });
-        if (key.downArrow) return dispatch({ type: 'focusZone', zone: 'list' });
         if (key.return) return activateToolbar();
         return;
       }
@@ -466,7 +465,7 @@ export function App() {
   const help =
     mode.kind === 'browse'
       ? state.focusZone === 'toolbar'
-        ? '←/→ select · Enter open/activate · ↓ list · s save · r reload · x reset · q quit'
+        ? '←/→ select · Enter open/activate · Tab list · s save · r reload · x reset · q quit'
         : '↑/↓ row · ←/→ col · Enter edit · / search · n name · v value · a add · d del · s save · q quit'
       : '';
 
