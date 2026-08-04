@@ -453,6 +453,8 @@ export function App() {
         if (selected) dispatch({ type: 'deleteEntry', entryId: selected.id });
         return;
       }
+      if (input === '[') return dispatch({ type: 'adjustNameColumn', delta: -1 });
+      if (input === ']') return dispatch({ type: 'adjustNameColumn', delta: 1 });
     },
     { isActive: mode.kind === 'browse' },
   );
@@ -466,7 +468,7 @@ export function App() {
     mode.kind === 'browse'
       ? state.focusZone === 'toolbar'
         ? '←/→ select · Enter open/activate · Tab list · s save · r reload · x reset · q quit'
-        : '↑/↓ row · ←/→ col · Enter edit · / search · n name · v value · a add · d del · s save · q quit'
+        : '↑/↓ row · ←/→ col · Enter edit · / search · n name · v value · a add · d del · s save · [/] col width · q quit'
       : '';
 
   function renderMiddle(): React.ReactNode {
@@ -574,6 +576,7 @@ export function App() {
               editingId={editingId}
               editingField={editingField}
               emptyHint={state.filter ? 'no entries match the search' : undefined}
+              nameColumnOffset={state.nameColumnOffset}
               onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
               onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
               onCancelEdit={cancelEdit}
