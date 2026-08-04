@@ -26,7 +26,7 @@ node --import tsx --test src/k8s/secrets.test.ts
 Release workflow (creates and pushes a version tag, then CI handles the rest):
 ```sh
 mise run release:patch   # or release:minor / release:major
-git push --follow-tags
+git pull --rebase && git push --follow-tags
 ```
 
 ## Architecture
