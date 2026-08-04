@@ -59,6 +59,7 @@ export interface AppState {
   loading: boolean;
   status: Status | null;
   restartOnSave: boolean;
+  nameColumnOffset: number;
 }
 
 export const initialState: AppState = {
@@ -82,6 +83,7 @@ export const initialState: AppState = {
   loading: false,
   status: null,
   restartOnSave: true,
+  nameColumnOffset: 0,
 };
 
 export type Action =
@@ -118,7 +120,8 @@ export type Action =
   | { type: 'toggleRestartOnSave' }
   | { type: 'savedOk'; resourceVersion: string | null }
   | { type: 'resetEdits' }
-  | { type: 'requestDiscard'; pending: PendingAction };
+  | { type: 'requestDiscard'; pending: PendingAction }
+  | { type: 'adjustNameColumn'; delta: number };
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 
@@ -314,6 +317,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'requestDiscard':
       return { ...state, mode: { kind: 'confirmDiscard', pending: action.pending } };
+
+    case 'adjustNameColumn':
+      return { ...state, nameColumnOffset: state.nameColumnOffset + action.delta };
 
     default:
       return state;

@@ -14,6 +14,7 @@ interface SecretListProps {
   editingId: string | null;
   editingField: EditingField;
   emptyHint?: string;
+  nameColumnOffset: number;
   onCommitName: (id: string, key: string) => void;
   onCommitValue: (id: string, value: string) => void;
   onCancelEdit: () => void;
@@ -41,11 +42,18 @@ export function SecretList({
   editingId,
   editingField,
   emptyHint,
+  nameColumnOffset,
   onCommitName,
   onCommitValue,
   onCancelEdit,
 }: SecretListProps) {
-  const nameWidth = clamp(Math.floor(width * 0.35), 8, 40);
+  const baseNameWidth = clamp(Math.floor(width * 0.5), 8, 60);
+  const MIN_NAME = 20;
+  const MIN_VALUE = 20;
+  const maxOffset = width - baseNameWidth - 6 - MIN_VALUE;
+  const minOffset = -(baseNameWidth - MIN_NAME);
+  const offset = clamp(nameColumnOffset, minOffset, maxOffset);
+  const nameWidth = baseNameWidth + offset;
   const valueWidth = Math.max(6, width - nameWidth - 6);
   const originalByKey = new Map(original.map((e) => [e.key, e] as const));
 
