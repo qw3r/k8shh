@@ -22,6 +22,14 @@ export type PendingAction =
   | { type: 'selectSecret'; name: string }
   | { type: 'quit' };
 
+/** The operation to retry after the user re-authenticates. */
+export type RetryAction =
+  | { type: 'loadNamespaces' }
+  | { type: 'loadSecrets'; namespace: string }
+  | { type: 'loadSecret'; namespace: string; name: string }
+  | { type: 'save' }
+  | { type: 'restart' };
+
 /** Overlay / editing state machine. Only the active mode consumes input. */
 export type Mode =
   | { kind: 'browse' }
@@ -31,7 +39,8 @@ export type Mode =
   | { kind: 'editValue'; entryId: string }
   | { kind: 'valueModal'; entryId: string; sub: 'view' | 'edit' }
   | { kind: 'confirmSave' }
-  | { kind: 'confirmDiscard'; pending: PendingAction };
+  | { kind: 'confirmDiscard'; pending: PendingAction }
+  | { kind: 'authError'; message: string; retry: RetryAction };
 
 export interface AppState {
   // cluster selection
@@ -57,6 +66,7 @@ export interface AppState {
   viewportRows: number;
   mode: Mode;
   loading: boolean;
+  loadingMessage: string | null;
   status: Status | null;
   restartOnSave: boolean;
   nameColumnOffset: number;
@@ -81,13 +91,14 @@ export const initialState: AppState = {
   viewportRows: 10,
   mode: { kind: 'browse' },
   loading: false,
+  loadingMessage: null,
   status: null,
   restartOnSave: true,
   nameColumnOffset: 0,
 };
 
 export type Action =
-  | { type: 'setLoading'; loading: boolean }
+  | { type: 'setLoading'; loading: boolean; message?: string }
   | { type: 'setStatus'; status: Status | null }
   | { type: 'setContexts'; contexts: ContextInfo[]; current: string | null }
   | { type: 'setNamespaces'; namespaces: string[] }
@@ -121,6 +132,7 @@ export type Action =
   | { type: 'savedOk'; resourceVersion: string | null }
   | { type: 'resetEdits' }
   | { type: 'requestDiscard'; pending: PendingAction }
+  | { type: 'showAuthError'; message: string; retry: RetryAction }
   | { type: 'adjustNameColumn'; delta: number };
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
@@ -132,7 +144,7 @@ function mapEntry(entries: Entry[], id: string, fn: (e: Entry) => Entry): Entry[
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'setLoading':
-      return { ...state, loading: action.loading };
+      return { ...state, loading: action.loading, loadingMessage: action.loading ? (action.message ?? null) : null };
 
     case 'setStatus':
       return { ...state, status: action.status };
@@ -317,6 +329,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'requestDiscard':
       return { ...state, mode: { kind: 'confirmDiscard', pending: action.pending } };
+
+    case 'showAuthError':
+      return { ...state, mode: { kind: 'authError', message: action.message, retry: action.retry } };
 
     case 'adjustNameColumn':
       return { ...state, nameColumnOffset: state.nameColumnOffset + action.delta };

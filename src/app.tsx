@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
-import { K8sClient, describeError } from './k8s/client.js';
+import { K8sClient, describeError, isAuthError } from './k8s/client.js';
 import { buildMergePatch, computeChanges, findDuplicateKeys, isDirty } from './k8s/secrets.js';
-import { type AppState, type PendingAction, TOOLBAR_CONTROLS, initialState, reducer } from './state/store.js';
+import { type AppState, type PendingAction, type RetryAction, TOOLBAR_CONTROLS, initialState, reducer } from './state/store.js';
 import { Toolbar } from './components/Toolbar.js';
 import { SecretList } from './components/SecretList.js';
 import { SelectList } from './components/SelectList.js';
@@ -24,6 +24,48 @@ function useTerminalSize(): { columns: number; rows: number } {
     };
   }, [stdout]);
   return size;
+}
+
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function LoadingModal({ message }: { message: string | null }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 80);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text color="cyan">
+        {SPINNER[tick % SPINNER.length]} {message ?? 'Loading…'}
+      </Text>
+    </Box>
+  );
+}
+
+function AuthErrorModal({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message: string;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  useInput((input, key) => {
+    if (key.escape) return onDismiss();
+    if (key.return || input === 'r') return onRetry();
+  });
+  return (
+    <Box flexDirection="column" borderStyle="double" borderColor="red" paddingX={1}>
+      <Text bold color="red">
+        Authentication error
+      </Text>
+      <Text>{message}</Text>
+      <Text dimColor>Run: gcloud auth login  (or refresh your token), then retry.</Text>
+      <Text dimColor>Enter/r retry · Esc dismiss</Text>
+    </Box>
+  );
 }
 
 function ConfirmDiscard({
@@ -60,6 +102,10 @@ export function App() {
   const setError = (e: unknown): void =>
     dispatch({ type: 'setStatus', status: { kind: 'error', text: describeError(e) } });
   const setInfo = (text: string): void => dispatch({ type: 'setStatus', status: { kind: 'info', text } });
+  const setAuthOrError = (e: unknown, retry: RetryAction): void =>
+    isAuthError(e)
+      ? dispatch({ type: 'showAuthError', message: describeError(e), retry })
+      : setError(e);
 
   // ---- async data loaders -------------------------------------------------
   async function loadNamespaces(): Promise<void> {
@@ -69,7 +115,7 @@ export function App() {
     try {
       dispatch({ type: 'setNamespaces', namespaces: await client.listNamespaces() });
     } catch (e) {
-      setError(e);
+      setAuthOrError(e, { type: 'loadNamespaces' });
     } finally {
       dispatch({ type: 'setLoading', loading: false });
     }
@@ -82,7 +128,7 @@ export function App() {
     try {
       dispatch({ type: 'setSecrets', secrets: await client.listSecrets(namespace) });
     } catch (e) {
-      setError(e);
+      setAuthOrError(e, { type: 'loadSecrets', namespace });
     } finally {
       dispatch({ type: 'setLoading', loading: false });
     }
@@ -98,7 +144,7 @@ export function App() {
       dispatch({ type: 'setStatus', status: null });
       saveLastSelection({ context: client.getCurrentContext() || undefined, namespace, secret: name });
     } catch (e) {
-      setError(e);
+      setAuthOrError(e, { type: 'loadSecret', namespace, name });
     } finally {
       dispatch({ type: 'setLoading', loading: false });
     }
@@ -144,7 +190,7 @@ export function App() {
     const namespace = state.currentNamespace;
     const secret = state.currentSecret;
     if (!client || !namespace || !secret) return;
-    dispatch({ type: 'setLoading', loading: true });
+    dispatch({ type: 'setLoading', loading: true, message: 'Saving changes…' });
     try {
       const patch = buildMergePatch(state.original, state.entries);
       await client.patchSecret(namespace, secret, patch);
@@ -161,7 +207,7 @@ export function App() {
       dispatch({ type: 'loadedSecret', loaded });
       dispatch({ type: 'setStatus', status: { kind: 'success', text: `Saved changes to the cluster.${note}` } });
     } catch (e) {
-      setError(e);
+      setAuthOrError(e, { type: 'save' });
     } finally {
       dispatch({ type: 'setLoading', loading: false });
     }
@@ -187,7 +233,7 @@ export function App() {
         },
       });
     } catch (e) {
-      setError(e);
+      setAuthOrError(e, { type: 'restart' });
     } finally {
       dispatch({ type: 'setLoading', loading: false });
     }
@@ -327,6 +373,17 @@ export function App() {
       case 'quit':
         exit();
         break;
+    }
+  };
+
+  const runRetry = (retry: RetryAction): void => {
+    dispatch({ type: 'closeMode' });
+    switch (retry.type) {
+      case 'loadNamespaces': void loadNamespaces(); break;
+      case 'loadSecrets':    void loadSecrets(retry.namespace); break;
+      case 'loadSecret':     void loadSecret(retry.namespace, retry.name); break;
+      case 'save':           handleSave(); break;
+      case 'restart':        void performRestart(); break;
     }
   };
 
@@ -472,6 +529,7 @@ export function App() {
       : '';
 
   function renderMiddle(): React.ReactNode {
+    if (state.loading) return <LoadingModal message={state.loadingMessage} />;
     switch (mode.kind) {
       case 'select': {
         if (mode.which === 'context') {
@@ -546,6 +604,14 @@ export function App() {
             pending={mode.pending}
             onConfirm={() => runPending(mode.pending)}
             onCancel={() => dispatch({ type: 'closeMode' })}
+          />
+        );
+      case 'authError':
+        return (
+          <AuthErrorModal
+            message={mode.message}
+            onRetry={() => runRetry(mode.retry)}
+            onDismiss={() => dispatch({ type: 'closeMode' })}
           />
         );
       default:

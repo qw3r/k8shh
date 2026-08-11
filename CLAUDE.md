@@ -51,6 +51,10 @@ The `mode` field drives which overlay consumes keyboard input. `browse` is the d
 - `config.ts` — loads `~/.config/k8shh/config.toml` (TOML via `smol-toml`). Seeds a commented default on first run. Controls which secret name suffixes are hidden.
 - `persistence.ts` — saves/restores the last context + namespace + secret selection to `~/.config/k8shh/last-selection.json`.
 
-**Components (`src/components/`):** Each is a focused Ink component. `SecretList` renders the key/value table with inline editing via `TextField`/`MultilineEditor`. `ValueEditorModal` is the fullscreen per-entry editor. `DiffConfirmModal` shows the diff before write. `SelectList` handles context/namespace/secret picking. `FilterBar` handles the `/`-triggered search.
+**Components (`src/components/`):** Each is a focused Ink component. `SecretList` renders the key/value table with inline editing via `TextField`/`MultilineEditor`. `ValueEditorModal` is the fullscreen per-entry editor. `DiffConfirmModal` shows the diff before write. `SelectList` handles context/namespace/secret picking. `FilterBar` handles the `/`-triggered search. `ConfirmDiscard` is a small inline component defined directly in `app.tsx` (not in `src/components/`).
+
+**Modal pattern:** Modals are not overlay portals — they replace the middle section entirely. `renderMiddle()` in `app.tsx` switches on `mode.kind` and returns the appropriate component. Adding a new modal means: (1) add a new `kind` to the `Mode` union in `store.ts`, (2) add actions/reducer cases as needed, (3) add a `case` in `renderMiddle()`.
+
+**Error handling:** `describeError(err)` in `src/k8s/client.ts` is the canonical helper for turning SDK/fetch errors into strings. Async errors in `app.tsx` call `setError(e)` which dispatches `setStatus` with `kind: 'error'` — errors are shown in `StatusBar`, not in a modal.
 
 **Build:** `tsc` compiles to `dist/`. For distribution, `scripts/bundle.mjs` uses esbuild to produce a single self-contained ESM bundle (`dist/k8shh.mjs`) with all dependencies inlined, including Yoga WASM.
