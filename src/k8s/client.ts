@@ -148,6 +148,19 @@ function deploymentUsesSecret(dep: V1Deployment, secret: string): boolean {
   return false;
 }
 
+/** Whether an error is an authentication failure (expired gcloud token, 401, etc.). */
+export function isAuthError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { statusCode?: unknown; body?: unknown; message?: unknown };
+  if (e.statusCode === 401) return true;
+  if (e.body && typeof e.body === 'object' && (e.body as { code?: unknown }).code === 401) return true;
+  if (typeof e.message === 'string') {
+    const m = e.message.toLowerCase();
+    if (m.includes('unauthorized') || m.includes('exec plugin') || m.includes('gcloud')) return true;
+  }
+  return false;
+}
+
 /** Extract a human-friendly message from a client-node / fetch error. */
 export function describeError(err: unknown): string {
   if (err && typeof err === 'object') {
