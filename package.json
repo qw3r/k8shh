@@ -1,6 +1,6 @@
 {
   "name": "k8shh",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Interactive Kubernetes secret editor (Ink/Yoga TUI).",
   "type": "module",
   "bin": {
