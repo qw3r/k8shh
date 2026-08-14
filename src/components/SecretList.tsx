@@ -65,8 +65,6 @@ export function SecretList({
     <Box
       flexDirection="column"
       flexGrow={1}
-      borderStyle="round"
-      borderColor={focused ? 'cyan' : 'gray'}
       paddingX={1}
     >
       <Box>

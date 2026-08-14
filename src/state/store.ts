@@ -30,6 +30,8 @@ export type RetryAction =
   | { type: 'save' }
   | { type: 'restart' };
 
+export type RestartItem = { name: string; status: 'pending' | 'running' | 'done' | 'error' };
+
 /** Overlay / editing state machine. Only the active mode consumes input. */
 export type Mode =
   | { kind: 'browse' }
@@ -40,7 +42,8 @@ export type Mode =
   | { kind: 'valueModal'; entryId: string; sub: 'view' | 'edit' }
   | { kind: 'confirmSave' }
   | { kind: 'confirmDiscard'; pending: PendingAction }
-  | { kind: 'authError'; message: string; retry: RetryAction };
+  | { kind: 'authError'; message: string; retry: RetryAction }
+  | { kind: 'restartProgress'; items: RestartItem[] };
 
 export interface AppState {
   // cluster selection
@@ -133,6 +136,8 @@ export type Action =
   | { type: 'resetEdits' }
   | { type: 'requestDiscard'; pending: PendingAction }
   | { type: 'showAuthError'; message: string; retry: RetryAction }
+  | { type: 'showRestartProgress'; names: string[] }
+  | { type: 'updateRestartItem'; name: string; status: 'running' | 'done' | 'error' }
   | { type: 'adjustNameColumn'; delta: number };
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
@@ -332,6 +337,15 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'showAuthError':
       return { ...state, mode: { kind: 'authError', message: action.message, retry: action.retry } };
+
+    case 'showRestartProgress':
+      return { ...state, mode: { kind: 'restartProgress', items: action.names.map((name) => ({ name, status: 'pending' })) } };
+
+    case 'updateRestartItem': {
+      if (state.mode.kind !== 'restartProgress') return state;
+      const items = state.mode.items.map((i) => (i.name === action.name ? { ...i, status: action.status } : i));
+      return { ...state, mode: { ...state.mode, items } };
+    }
 
     case 'adjustNameColumn':
       return { ...state, nameColumnOffset: state.nameColumnOffset + action.delta };

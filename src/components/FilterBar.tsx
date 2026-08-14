@@ -12,7 +12,7 @@ interface FilterBarProps {
   onCancel: () => void;
 }
 
-/** A one-line incremental search bar that filters entries by name and value. */
+/** Prominent search bar shown at the top of the list panel. */
 export function FilterBar({
   query,
   active,
@@ -23,18 +23,19 @@ export function FilterBar({
   onCancel,
 }: FilterBarProps) {
   return (
-    <Box>
-      <Text color="cyan">search </Text>
+    <Box width="100%" borderStyle="round" borderColor={active ? 'cyan' : 'gray'} paddingX={1}>
+      <Text bold color={active ? 'cyan' : 'gray'}>/</Text>
+      <Text> </Text>
       {active ? (
         <TextField initialValue={query} onChange={onChange} onSubmit={onSubmit} onCancel={onCancel} />
       ) : query.length > 0 ? (
-        <Text>{query}</Text>
+        <Text color="cyan">{query}</Text>
       ) : (
-        <Text dimColor>(press / to search name/value)</Text>
+        <Text dimColor>search…</Text>
       )}
       <Text dimColor>
         {'  '}
-        {matchCount}/{total} match{matchCount === 1 ? '' : 'es'}
+        {matchCount}/{total}
       </Text>
     </Box>
   );

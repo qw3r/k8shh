@@ -97,12 +97,24 @@ export class K8sClient {
     return res.items;
   }
 
+  /** Names of deployments in the namespace that reference `secretName`. */
+  async findDeploymentsUsingSecret(namespace: string, secretName: string): Promise<string[]> {
+    return (await this.listDeployments(namespace))
+      .filter((d) => deploymentUsesSecret(d, secretName))
+      .map((d) => d.metadata?.name)
+      .filter((n): n is string => typeof n === 'string');
+  }
+
   /**
    * Rolling-restart every deployment in the namespace that references
    * `secretName` (via envFrom, env secretKeyRef, mounted/projected secret
    * volumes, or image pull secrets). Returns the restarted deployment names.
    */
-  async restartDeploymentsUsingSecret(namespace: string, secretName: string): Promise<string[]> {
+  async restartDeploymentsUsingSecret(
+    namespace: string,
+    secretName: string,
+    onProgress?: (name: string, status: 'running' | 'done' | 'error') => void,
+  ): Promise<string[]> {
     const targets = (await this.listDeployments(namespace)).filter((d) =>
       deploymentUsesSecret(d, secretName),
     );
@@ -111,21 +123,27 @@ export class K8sClient {
     for (const dep of targets) {
       const name = dep.metadata?.name;
       if (!name) continue;
-      await this.apps.patchNamespacedDeployment(
-        {
-          name,
-          namespace,
-          body: {
-            spec: {
-              template: {
-                metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': restartedAt } },
+      onProgress?.(name, 'running');
+      try {
+        await this.apps.patchNamespacedDeployment(
+          {
+            name,
+            namespace,
+            body: {
+              spec: {
+                template: {
+                  metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': restartedAt } },
+                },
               },
             },
           },
-        },
-        setHeaderOptions('Content-Type', PatchStrategy.StrategicMergePatch),
-      );
-      names.push(name);
+          setHeaderOptions('Content-Type', PatchStrategy.StrategicMergePatch),
+        );
+        names.push(name);
+        onProgress?.(name, 'done');
+      } catch {
+        onProgress?.(name, 'error');
+      }
     }
     return names;
   }

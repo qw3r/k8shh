@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { K8sClient, describeError, isAuthError } from './k8s/client.js';
 import { buildMergePatch, computeChanges, findDuplicateKeys, isDirty } from './k8s/secrets.js';
-import { type AppState, type PendingAction, type RetryAction, TOOLBAR_CONTROLS, initialState, reducer } from './state/store.js';
+import { type AppState, type PendingAction, type RestartItem, type RetryAction, TOOLBAR_CONTROLS, initialState, reducer } from './state/store.js';
 import { Toolbar } from './components/Toolbar.js';
 import { SecretList } from './components/SecretList.js';
 import { SelectList } from './components/SelectList.js';
@@ -28,17 +28,10 @@ function useTerminalSize(): { columns: number; rows: number } {
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-function LoadingModal({ message }: { message: string | null }) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 80);
-    return () => clearInterval(id);
-  }, []);
+function CenteredModal({ height, children }: { height: number; children: React.ReactNode }) {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text color="cyan">
-        {SPINNER[tick % SPINNER.length]} {message ?? 'Loading…'}
-      </Text>
+    <Box width="100%" height={height} flexDirection="column" alignItems="center" justifyContent="center">
+      <Box width="75%">{children}</Box>
     </Box>
   );
 }
@@ -64,6 +57,56 @@ function AuthErrorModal({
       <Text>{message}</Text>
       <Text dimColor>Run: gcloud auth login  (or refresh your token), then retry.</Text>
       <Text dimColor>Enter/r retry · Esc dismiss</Text>
+    </Box>
+  );
+}
+
+function RestartProgressModal({ items, onClose }: { items: RestartItem[]; onClose: () => void }) {
+  const [tick, setTick] = useState(0);
+  const allDone = items.every((i) => i.status === 'done' || i.status === 'error');
+  useEffect(() => {
+    if (allDone) return;
+    const id = setInterval(() => setTick((t) => t + 1), 80);
+    return () => clearInterval(id);
+  }, [allDone]);
+  useInput((input, key) => {
+    if (key.escape || (allDone && (key.return || input === 'q'))) onClose();
+  });
+  const doneCount = items.filter((i) => i.status === 'done').length;
+  const errCount = items.filter((i) => i.status === 'error').length;
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text bold color="cyan">
+        Rolling restart — {items.length} deployment{items.length !== 1 ? 's' : ''}
+      </Text>
+      <Box flexDirection="column" marginTop={1}>
+        {items.map((item) => (
+          <Box key={item.name}>
+            <Text color={item.status === 'done' ? 'green' : item.status === 'error' ? 'red' : 'cyan'}>
+              {item.status === 'running'
+                ? SPINNER[tick % SPINNER.length]
+                : item.status === 'done'
+                  ? '✓'
+                  : item.status === 'error'
+                    ? '✗'
+                    : '·'}
+            </Text>
+            <Text> {item.name}</Text>
+            {item.status !== 'pending' && <Text dimColor>  {item.status}</Text>}
+          </Box>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        {allDone ? (
+          <Text>
+            {doneCount > 0 ? `${doneCount} restarted` : ''}
+            {errCount > 0 ? `${doneCount > 0 ? ', ' : ''}${errCount} failed` : ''} — Enter/Esc to
+            close
+          </Text>
+        ) : (
+          <Text dimColor>Esc to dismiss (restart continues in background)</Text>
+        )}
+      </Box>
     </Box>
   );
 }
@@ -98,6 +141,13 @@ export function App() {
   const size = useTerminalSize();
   const [state, dispatch] = useReducer(reducer, initialState);
   const clientRef = useRef<K8sClient | null>(null);
+  const [ballTick, setBallTick] = useState(0);
+
+  useEffect(() => {
+    if (!state.loading) return;
+    const id = setInterval(() => setBallTick((t) => t + 1), 40);
+    return () => clearInterval(id);
+  }, [state.loading]);
 
   const setError = (e: unknown): void =>
     dispatch({ type: 'setStatus', status: { kind: 'error', text: describeError(e) } });
@@ -219,24 +269,27 @@ export function App() {
       setInfo('No secret loaded.');
       return;
     }
-    dispatch({ type: 'setLoading', loading: true });
+    const ns = state.currentNamespace;
+    const secret = state.currentSecret;
+    dispatch({ type: 'setLoading', loading: true, message: 'Finding deployments…' });
+    let names: string[];
     try {
-      const names = await client.restartDeploymentsUsingSecret(state.currentNamespace, state.currentSecret);
-      dispatch({
-        type: 'setStatus',
-        status: {
-          kind: 'success',
-          text:
-            names.length > 0
-              ? `Rolling-restarted ${names.length} deployment(s): ${names.join(', ')}`
-              : 'No deployments reference this secret.',
-        },
-      });
+      names = await client.findDeploymentsUsingSecret(ns, secret);
     } catch (e) {
-      setAuthOrError(e, { type: 'restart' });
-    } finally {
       dispatch({ type: 'setLoading', loading: false });
+      setAuthOrError(e, { type: 'restart' });
+      return;
     }
+    if (names.length === 0) {
+      dispatch({ type: 'setLoading', loading: false });
+      setInfo('No deployments reference this secret.');
+      return;
+    }
+    dispatch({ type: 'showRestartProgress', names });
+    dispatch({ type: 'setLoading', loading: false });
+    await client.restartDeploymentsUsingSecret(ns, secret, (name, status) => {
+      dispatch({ type: 'updateRestartItem', name, status });
+    });
   }
 
   // ---- init ---------------------------------------------------------------
@@ -294,10 +347,23 @@ export function App() {
 
   // ---- layout sizing ------------------------------------------------------
   const toolbarHeight = 3;
-  const statusHeight = 3;
+  const statusHeight = 4; // border adds 2 lines to 2-line status bar
   const middleRows = Math.max(4, size.rows - toolbarHeight - statusHeight);
-  const listBodyRows = Math.max(1, middleRows - 4);
+  const showFilter = state.mode.kind === 'filter' || state.filter.length > 0;
+  // 2 (outer panel border) + 3 (filter with border, when shown) + 1 (header) + 1 (footer)
+  const listBodyRows = Math.max(1, middleRows - (showFilter ? 7 : 4));
   const innerWidth = Math.max(20, size.columns - 4);
+  const borderInnerWidth = Math.max(0, size.columns - 2);
+  // Knight-rider block ~10% wide, bouncing within a centered zone (~30% of the border).
+  const ballW = Math.max(3, Math.floor(borderInnerWidth * 0.1));
+  const zoneW = Math.min(borderInnerWidth, ballW * 3);
+  const zoneStart = Math.floor((borderInnerWidth - zoneW) / 2);
+  const ballPos = (() => {
+    const travel = Math.max(1, zoneW - ballW);
+    const cycle = travel * 2;
+    const raw = ballTick % cycle;
+    return zoneStart + (raw <= travel ? raw : cycle - raw);
+  })();
 
   useEffect(() => {
     dispatch({ type: 'setViewportRows', rows: listBodyRows });
@@ -316,8 +382,6 @@ export function App() {
 
   const selectedIndex = Math.min(state.selectedIndex, Math.max(0, filteredEntries.length - 1));
   const selected = filteredEntries[selectedIndex];
-  const filterBarShown = mode.kind === 'filter' || state.filter.length > 0;
-  const listRows = Math.max(1, listBodyRows - (filterBarShown ? 1 : 0));
 
   // ---- action helpers -----------------------------------------------------
   const handleSave = (): void => {
@@ -513,7 +577,7 @@ export function App() {
       if (input === '[') return dispatch({ type: 'adjustNameColumn', delta: -1 });
       if (input === ']') return dispatch({ type: 'adjustNameColumn', delta: 1 });
     },
-    { isActive: mode.kind === 'browse' },
+    { isActive: mode.kind === 'browse' && !state.loading },
   );
 
   // ---- render -------------------------------------------------------------
@@ -525,130 +589,163 @@ export function App() {
     mode.kind === 'browse'
       ? state.focusZone === 'toolbar'
         ? '←/→ select · Enter open/activate · Tab list · s save · r reload · x reset · q quit'
-        : '↑/↓ row · ←/→ col · Enter edit · / search · n name · v value · a add · d del · s save · [/] col width · q quit'
+        : '↑/↓ row · ←/→ col · Enter edit · Tab selectors · / search · n name · v value · a add · d del · s save · [/] col width · q quit'
       : '';
 
   function renderMiddle(): React.ReactNode {
-    if (state.loading) return <LoadingModal message={state.loadingMessage} />;
+    const modalWidth = Math.floor(size.columns * 0.75);
+    const modalHeight = Math.floor(middleRows * 0.85);
     switch (mode.kind) {
       case 'select': {
-        if (mode.which === 'context') {
-          return (
-            <SelectList
-              title="Select context"
-              items={state.contexts.map((c) => ({ label: c.name, value: c.name, hint: c.cluster }))}
-              currentValue={state.currentContext}
-              height={listBodyRows}
-              onSelect={(v) => chooseFromList('context', v)}
-              onCancel={() => dispatch({ type: 'closeMode' })}
-            />
-          );
-        }
-        if (mode.which === 'namespace') {
-          return (
-            <SelectList
-              title="Select namespace"
-              items={state.namespaces.map((n) => ({ label: n, value: n }))}
-              currentValue={state.currentNamespace}
-              height={listBodyRows}
-              onSelect={(v) => chooseFromList('namespace', v)}
-              onCancel={() => dispatch({ type: 'closeMode' })}
-            />
-          );
-        }
+        const items =
+          mode.which === 'context'
+            ? state.contexts.map((c) => ({ label: c.name, value: c.name, hint: c.cluster }))
+            : mode.which === 'namespace'
+              ? state.namespaces.map((n) => ({ label: n, value: n }))
+              : state.secrets.map((s) => ({ label: s.name, value: s.name, hint: s.type }));
+        const titles = { context: 'Select context', namespace: 'Select namespace', secret: 'Select secret' };
+        const current =
+          mode.which === 'context'
+            ? state.currentContext
+            : mode.which === 'namespace'
+              ? state.currentNamespace
+              : state.currentSecret;
         return (
-          <SelectList
-            title="Select secret"
-            items={state.secrets.map((s) => ({ label: s.name, value: s.name, hint: s.type }))}
-            currentValue={state.currentSecret}
-            height={listBodyRows}
-            onSelect={(v) => chooseFromList('secret', v)}
-            onCancel={() => dispatch({ type: 'closeMode' })}
-          />
+          <CenteredModal height={middleRows}>
+            <SelectList
+              title={titles[mode.which]}
+              items={items}
+              currentValue={current}
+              height={modalHeight}
+              onSelect={(v) => chooseFromList(mode.which, v)}
+              onCancel={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
         );
       }
       case 'valueModal': {
         const entry = state.entries.find((e) => e.id === mode.entryId);
         if (!entry) return null;
         return (
-          <ValueEditorModal
-            entry={entry}
-            sub={mode.sub}
-            width={size.columns}
-            height={middleRows}
-            onSetSub={(sub) => dispatch({ type: 'setModalSub', sub })}
-            onCommit={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
-            onCancel={() => dispatch({ type: 'closeMode' })}
-          />
+          <CenteredModal height={middleRows}>
+            <ValueEditorModal
+              entry={entry}
+              sub={mode.sub}
+              width={modalWidth}
+              height={modalHeight}
+              onSetSub={(sub) => dispatch({ type: 'setModalSub', sub })}
+              onCommit={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
+              onCancel={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
         );
       }
       case 'confirmSave':
         return (
-          <DiffConfirmModal
-            changes={changes}
-            width={size.columns}
-            height={middleRows}
-            restartOnSave={state.restartOnSave}
-            onToggleRestart={() => dispatch({ type: 'toggleRestartOnSave' })}
-            onConfirm={() => {
-              const restart = state.restartOnSave;
-              dispatch({ type: 'closeMode' });
-              void performSave(restart);
-            }}
-            onCancel={() => dispatch({ type: 'closeMode' })}
-          />
+          <CenteredModal height={middleRows}>
+            <DiffConfirmModal
+              changes={changes}
+              width={modalWidth}
+              height={modalHeight}
+              restartOnSave={state.restartOnSave}
+              onToggleRestart={() => dispatch({ type: 'toggleRestartOnSave' })}
+              onConfirm={() => {
+                const restart = state.restartOnSave;
+                dispatch({ type: 'closeMode' });
+                void performSave(restart);
+              }}
+              onCancel={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
         );
       case 'confirmDiscard':
         return (
-          <ConfirmDiscard
-            pending={mode.pending}
-            onConfirm={() => runPending(mode.pending)}
-            onCancel={() => dispatch({ type: 'closeMode' })}
-          />
+          <CenteredModal height={middleRows}>
+            <ConfirmDiscard
+              pending={mode.pending}
+              onConfirm={() => runPending(mode.pending)}
+              onCancel={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
         );
       case 'authError':
         return (
-          <AuthErrorModal
-            message={mode.message}
-            onRetry={() => runRetry(mode.retry)}
-            onDismiss={() => dispatch({ type: 'closeMode' })}
-          />
-        );
-      default:
-        return (
-          <>
-            {filterBarShown && (
-              <FilterBar
-                query={state.filter}
-                active={mode.kind === 'filter'}
-                matchCount={filteredEntries.length}
-                total={state.entries.length}
-                onChange={(v) => dispatch({ type: 'setFilter', value: v })}
-                onSubmit={() => dispatch({ type: 'closeMode' })}
-                onCancel={() => {
-                  dispatch({ type: 'setFilter', value: '' });
-                  dispatch({ type: 'closeMode' });
-                }}
-              />
-            )}
-            <SecretList
-              entries={filteredEntries}
-              original={state.original}
-              selectedIndex={selectedIndex}
-              rows={listRows}
-              width={innerWidth}
-              focused={state.focusZone === 'list'}
-              selectedColumn={state.selectedColumn}
-              editingId={editingId}
-              editingField={editingField}
-              emptyHint={state.filter ? 'no entries match the search' : undefined}
-              nameColumnOffset={state.nameColumnOffset}
-              onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
-              onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
-              onCancelEdit={cancelEdit}
+          <CenteredModal height={middleRows}>
+            <AuthErrorModal
+              message={mode.message}
+              onRetry={() => runRetry(mode.retry)}
+              onDismiss={() => dispatch({ type: 'closeMode' })}
             />
-          </>
+          </CenteredModal>
         );
+      case 'restartProgress':
+        return (
+          <CenteredModal height={middleRows}>
+            <RestartProgressModal
+              items={mode.items}
+              onClose={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
+        );
+      default: {
+        const focusColor = state.focusZone === 'list' ? 'cyan' : 'gray';
+        const right = Math.max(0, borderInnerWidth - ballPos - ballW);
+        const topBorder = state.loading ? (
+          <Box>
+            <Text color={focusColor}>{'╭' + '─'.repeat(ballPos)}</Text>
+            <Text bold color="white">{'▓'.repeat(ballW)}</Text>
+            <Text color={focusColor}>{'─'.repeat(right) + '╮'}</Text>
+          </Box>
+        ) : (
+          <Text color={focusColor}>{'╭' + '─'.repeat(borderInnerWidth) + '╮'}</Text>
+        );
+        return (
+          <Box flexDirection="column" flexGrow={1} width="100%">
+            {topBorder}
+            <Box
+              flexGrow={1}
+              borderStyle="round"
+              borderTop={false}
+              borderBottom={false}
+              borderColor={focusColor}
+            >
+              <Box flexDirection="column" flexGrow={1}>
+                {showFilter && (
+                  <FilterBar
+                    query={state.filter}
+                    active={mode.kind === 'filter'}
+                    matchCount={filteredEntries.length}
+                    total={state.entries.length}
+                    onChange={(v) => dispatch({ type: 'setFilter', value: v })}
+                    onSubmit={() => dispatch({ type: 'closeMode' })}
+                    onCancel={() => {
+                      dispatch({ type: 'setFilter', value: '' });
+                      dispatch({ type: 'closeMode' });
+                    }}
+                  />
+                )}
+                <SecretList
+                  entries={filteredEntries}
+                  original={state.original}
+                  selectedIndex={selectedIndex}
+                  rows={listBodyRows}
+                  width={innerWidth}
+                  focused={state.focusZone === 'list'}
+                  selectedColumn={state.selectedColumn}
+                  editingId={editingId}
+                  editingField={editingField}
+                  emptyHint={state.filter ? 'no entries match the search' : undefined}
+                  nameColumnOffset={state.nameColumnOffset}
+                  onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
+                  onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
+                  onCancelEdit={cancelEdit}
+                />
+              </Box>
+            </Box>
+            <Text color={focusColor}>{'╰' + '─'.repeat(borderInnerWidth) + '╯'}</Text>
+          </Box>
+        );
+      }
     }
   }
 
