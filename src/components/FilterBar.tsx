@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { TextField } from './TextField.js';
+import { theme } from '../theme.js';
 
 interface FilterBarProps {
   query: string;
@@ -23,13 +24,14 @@ export function FilterBar({
   onCancel,
 }: FilterBarProps) {
   return (
-    <Box width="100%" borderStyle="round" borderColor={active ? 'cyan' : 'gray'} paddingX={1}>
-      <Text bold color={active ? 'cyan' : 'gray'}>/</Text>
-      <Text> </Text>
+    <Box width="100%" paddingX={1}>
+      <Text bold color={active ? theme.accent : theme.muted}>
+        /{' '}
+      </Text>
       {active ? (
         <TextField initialValue={query} onChange={onChange} onSubmit={onSubmit} onCancel={onCancel} />
       ) : query.length > 0 ? (
-        <Text color="cyan">{query}</Text>
+        <Text color={theme.accent}>{query}</Text>
       ) : (
         <Text dimColor>search…</Text>
       )}

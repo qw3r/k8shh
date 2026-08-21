@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { Entry } from '../k8s/types.js';
 import { SecretRow, type EditingField, type RowStatus } from './SecretRow.js';
+import { theme } from '../theme.js';
 
 interface SecretListProps {
   entries: Entry[];
@@ -70,15 +71,11 @@ export function SecretList({
       <Box>
         <Text>{'   '}</Text>
         <Box width={nameWidth}>
-          <Text bold underline>
-            NAME
-          </Text>
+          <Text color={theme.muted}>NAME</Text>
         </Box>
         <Text>{'   '}</Text>
         <Box width={valueWidth}>
-          <Text bold underline>
-            VALUE
-          </Text>
+          <Text color={theme.muted}>VALUE</Text>
         </Box>
       </Box>
 
@@ -109,7 +106,7 @@ export function SecretList({
       )}
 
       <Box>
-        <Text dimColor>
+        <Text color={theme.muted}>
           {entries.length > 0 ? `${selectedIndex + 1}/${entries.length}` : '0/0'}
           {start > 0 ? '  ↑ more' : ''}
           {start + bodyRows < entries.length ? '  ↓ more' : ''}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { EntryChange } from '../k8s/types.js';
+import { theme } from '../theme.js';
 
 interface DiffConfirmModalProps {
   changes: EntryChange[];
@@ -23,26 +24,26 @@ function ChangeLine({ change, width }: { change: EntryChange; width: number }) {
   switch (change.kind) {
     case 'added':
       return (
-        <Text color="green" wrap="truncate-end">
+        <Text color={theme.success} wrap="truncate-end">
           + {change.key} = {shorten(change.newValue, w)}
           {change.binary ? ' (binary)' : ''}
         </Text>
       );
     case 'removed':
       return (
-        <Text color="red" wrap="truncate-end">
+        <Text color={theme.error} wrap="truncate-end">
           - {change.key}
         </Text>
       );
     case 'changed':
       return (
-        <Text color="yellow" wrap="truncate-end">
+        <Text color={theme.warn} wrap="truncate-end">
           ~ {change.key}: {shorten(change.oldValue, w / 2)} → {shorten(change.newValue, w / 2)}
         </Text>
       );
     case 'renamed':
       return (
-        <Text color="cyan" wrap="truncate-end">
+        <Text color={theme.accent} wrap="truncate-end">
           » {change.oldKey} → {change.key}
           {change.valueChanged ? ' (value changed)' : ''}
         </Text>
@@ -78,14 +79,14 @@ export function DiffConfirmModal({
   return (
     <Box
       flexDirection="column"
-      borderStyle="double"
-      borderColor="yellow"
+      borderStyle="round"
+      borderColor={theme.accent}
       paddingX={1}
       width="100%"
       height={height}
     >
-      <Text bold color="yellow">
-        Review changes to apply ({changes.length})
+      <Text bold color={theme.accent}>
+        Review changes ({changes.length})
       </Text>
       <Box flexDirection="column" flexGrow={1} marginTop={1}>
         {changes.length === 0 ? (

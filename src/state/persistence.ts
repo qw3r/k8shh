@@ -7,6 +7,8 @@ export interface LastSelection {
   context?: string;
   namespace?: string;
   secret?: string;
+  /** Per-context memory: context name → { namespace, secret } */
+  perContext?: Record<string, { namespace: string; secret: string }>;
 }
 
 function stateFilePath(): string {
@@ -26,13 +28,24 @@ export function loadLastSelection(): LastSelection | null {
   }
 }
 
-/** Persist the selection (best-effort; persistence errors are ignored). */
+/** Persist the selection. Also updates the per-context map. */
 export function saveLastSelection(selection: LastSelection): void {
   try {
     const file = stateFilePath();
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, `${JSON.stringify(selection, null, 2)}\n`, 'utf-8');
+    const existing = loadLastSelection() ?? {};
+    const perContext = { ...(existing.perContext ?? {}) };
+    if (selection.context && selection.namespace && selection.secret) {
+      perContext[selection.context] = { namespace: selection.namespace, secret: selection.secret };
+    }
+    writeFileSync(file, `${JSON.stringify({ ...selection, perContext }, null, 2)}\n`, 'utf-8');
   } catch {
     // best-effort only
   }
+}
+
+/** Return the remembered namespace+secret for a specific context, or null. */
+export function getPerContextSelection(context: string): { namespace: string; secret: string } | null {
+  const last = loadLastSelection();
+  return last?.perContext?.[context] ?? null;
 }

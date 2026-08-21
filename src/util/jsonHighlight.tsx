@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text } from 'ink';
+import { theme } from '../theme.js';
 
 // Matches: 1=string, 2=number, 3=boolean, 4=null, 5=punctuation.
 const TOKEN =
@@ -25,25 +26,25 @@ export function highlightJsonLine(line: string): React.ReactNode {
     if (str !== undefined) {
       const isKey = /^\s*:/.test(line.slice(match.index + tok.length));
       nodes.push(
-        <Text key={key++} color={isKey ? 'cyan' : 'green'}>
+        <Text key={key++} color={isKey ? theme.syntax.key : theme.syntax.string}>
           {tok}
         </Text>,
       );
     } else if (num !== undefined) {
       nodes.push(
-        <Text key={key++} color="yellow">
+        <Text key={key++} color={theme.syntax.number}>
           {tok}
         </Text>,
       );
     } else if (bool !== undefined) {
       nodes.push(
-        <Text key={key++} color="magenta">
+        <Text key={key++} color={theme.syntax.bool}>
           {tok}
         </Text>,
       );
     } else if (nul !== undefined) {
       nodes.push(
-        <Text key={key++} color="red" dimColor>
+        <Text key={key++} color={theme.syntax.null} dimColor>
           {tok}
         </Text>,
       );

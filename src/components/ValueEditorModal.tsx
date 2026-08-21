@@ -4,6 +4,7 @@ import type { Entry } from '../k8s/types.js';
 import { isJson, minify, pretty } from '../util/json.js';
 import { MultilineEditor } from './MultilineEditor.js';
 import { highlightJsonLine } from '../util/jsonHighlight.js';
+import { theme } from '../theme.js';
 
 interface ValueEditorModalProps {
   entry: Entry;
@@ -71,18 +72,18 @@ export function ValueEditorModal({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="magenta"
+      borderColor={theme.accent}
       paddingX={1}
       width="100%"
       height={height}
     >
       <Box justifyContent="space-between">
-        <Text bold color="magenta" wrap="truncate-end">
+        <Text bold color={theme.accent} wrap="truncate-end">
           Value · {entry.key.trim() === '' ? '(unnamed)' : entry.key}
         </Text>
         <Text>
-          {json ? <Text color="magenta">JSON</Text> : <Text dimColor>text</Text>}
-          {entry.binary ? <Text color="red"> binary (read-only)</Text> : null}
+          {json ? <Text color={theme.accent}>JSON</Text> : <Text dimColor>text</Text>}
+          {entry.binary ? <Text color={theme.error}> binary (read-only)</Text> : null}
           {'  '}
           <Text dimColor>{sub === 'edit' ? 'EDIT' : 'VIEW'}</Text>
         </Text>

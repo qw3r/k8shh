@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import type { Entry } from '../k8s/types.js';
 import { isJson } from '../util/json.js';
 import { TextField } from './TextField.js';
+import { theme } from '../theme.js';
 
 export type RowStatus = 'new' | 'renamed' | 'changed' | 'unchanged';
 export type EditingField = 'name' | 'value' | null;
@@ -25,7 +26,7 @@ function marker(status: RowStatus): { ch: string; color?: string } {
     case 'new':
       return { ch: '+', color: 'green' };
     case 'renamed':
-      return { ch: '»', color: 'cyan' };
+      return { ch: '»', color: theme.accent };
     case 'changed':
       return { ch: '~', color: 'yellow' };
     default:
@@ -44,7 +45,7 @@ function ValuePreview({ entry, highlight }: { entry: Entry; highlight: boolean }
   const oneLine = entry.value.replace(/\n/g, '↵');
   return (
     <Text inverse={highlight} wrap="truncate-end">
-      {isJson(entry.value) ? <Text color="magenta">{'{} '}</Text> : null}
+      {isJson(entry.value) ? <Text color={theme.syntax.key}>{'{} '}</Text> : null}
       {oneLine.length > 0 ? oneLine : <Text dimColor>(empty)</Text>}
     </Text>
   );
@@ -68,7 +69,7 @@ export function SecretRow({
   const focusValue = selected && selectedColumn === 'value';
   return (
     <Box>
-      <Text color={selected ? 'cyan' : undefined}>{selected ? '›' : ' '}</Text>
+      <Text color={selected ? theme.accent : undefined}>{selected ? '▎' : ' '}</Text>
       <Text color={m.color}>{m.ch} </Text>
       <Box width={nameWidth}>
         {editing === 'name' ? (
