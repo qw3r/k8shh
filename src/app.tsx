@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
+import { spawn } from 'node:child_process';
 import { K8sClient, describeError, isAuthError } from './k8s/client.js';
 import { buildMergePatch, computeChanges, findDuplicateKeys, isDirty } from './k8s/secrets.js';
 import { type AppState, type PendingAction, type RestartItem, type RetryAction, TOOLBAR_CONTROLS, initialState, reducer } from './state/store.js';
@@ -10,7 +11,14 @@ import { StatusBar } from './components/StatusBar.js';
 import { ValueEditorModal } from './components/ValueEditorModal.js';
 import { DiffConfirmModal } from './components/DiffConfirmModal.js';
 import { FilterBar } from './components/FilterBar.js';
-import { loadLastSelection, saveLastSelection } from './state/persistence.js';
+import { loadLastSelection, saveLastSelection, getPerContextSelection } from './state/persistence.js';
+import { saveThemeName } from './state/config.js';
+import { theme, applyTheme, getCurrentThemeName, THEME_NAMES } from './theme.js';
+
+// Matches cli.tsx: the alt-screen is toggled so we can hand the terminal to an
+// interactive child process (gcloud auth login) and take it back afterwards.
+const ENTER_ALT_SCREEN = '[?1049h';
+const LEAVE_ALT_SCREEN = '[?1049l';
 
 /** Track terminal size and re-render on resize. */
 function useTerminalSize(): { columns: number; rows: number } {
@@ -27,6 +35,7 @@ function useTerminalSize(): { columns: number; rows: number } {
 }
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SCAN_W = 7; // ░▒▓█▓▒░
 
 function CenteredModal({ height, children }: { height: number; children: React.ReactNode }) {
   return (
@@ -39,24 +48,27 @@ function CenteredModal({ height, children }: { height: number; children: React.R
 function AuthErrorModal({
   message,
   onRetry,
+  onLogin,
   onDismiss,
 }: {
   message: string;
   onRetry: () => void;
+  onLogin: () => void;
   onDismiss: () => void;
 }) {
   useInput((input, key) => {
     if (key.escape) return onDismiss();
+    if (input === 'l') return onLogin();
     if (key.return || input === 'r') return onRetry();
   });
   return (
-    <Box flexDirection="column" borderStyle="double" borderColor="red" paddingX={1}>
-      <Text bold color="red">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.error} paddingX={1}>
+      <Text bold color={theme.error}>
         Authentication error
       </Text>
       <Text>{message}</Text>
-      <Text dimColor>Run: gcloud auth login  (or refresh your token), then retry.</Text>
-      <Text dimColor>Enter/r retry · Esc dismiss</Text>
+      <Text dimColor>Log in with gcloud (opens your browser), then the action retries.</Text>
+      <Text dimColor>l gcloud auth login · Enter/r retry · Esc dismiss</Text>
     </Box>
   );
 }
@@ -75,14 +87,14 @@ function RestartProgressModal({ items, onClose }: { items: RestartItem[]; onClos
   const doneCount = items.filter((i) => i.status === 'done').length;
   const errCount = items.filter((i) => i.status === 'error').length;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
+      <Text bold color={theme.accent}>
         Rolling restart — {items.length} deployment{items.length !== 1 ? 's' : ''}
       </Text>
       <Box flexDirection="column" marginTop={1}>
         {items.map((item) => (
           <Box key={item.name}>
-            <Text color={item.status === 'done' ? 'green' : item.status === 'error' ? 'red' : 'cyan'}>
+            <Text color={item.status === 'done' ? 'green' : item.status === 'error' ? 'red' : theme.accent}>
               {item.status === 'running'
                 ? SPINNER[tick % SPINNER.length]
                 : item.status === 'done'
@@ -111,6 +123,41 @@ function RestartProgressModal({ items, onClose }: { items: RestartItem[]; onClos
   );
 }
 
+function LoadingModal({ message, tick, width, onQuit }: {
+  message: string | null;
+  tick: number;
+  width: number;
+  onQuit: () => void;
+}) {
+  const inner = Math.max(SCAN_W + 2, width - 6);
+  const travel = Math.max(1, inner - SCAN_W);
+  const cycle = travel * 2;
+  const raw = tick % cycle;
+  const pos = raw <= travel ? raw : cycle - raw;
+  useInput((input) => { if (input === 'q') onQuit(); });
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={2} paddingY={1} width={width}>
+      <Box>
+        <Text color={theme.border}>{'─'.repeat(pos)}</Text>
+        <Text color={theme.accent} dimColor>░</Text>
+        <Text color={theme.accent}>▒</Text>
+        <Text color={theme.accent}>▓</Text>
+        <Text bold color={theme.accent}>█</Text>
+        <Text color={theme.accent}>▓</Text>
+        <Text color={theme.accent}>▒</Text>
+        <Text color={theme.accent} dimColor>░</Text>
+        <Text color={theme.border}>{'─'.repeat(Math.max(0, inner - pos - SCAN_W))}</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text>{message ?? 'Loading…'}</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text color={theme.muted}>q  quit</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function ConfirmDiscard({
   pending,
   onConfirm,
@@ -126,8 +173,8 @@ function ConfirmDiscard({
   });
   const verb = pending.type === 'quit' ? 'Quit' : 'Continue';
   return (
-    <Box flexDirection="column" borderStyle="double" borderColor="red" paddingX={1}>
-      <Text bold color="red">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.error} paddingX={1}>
+      <Text bold color={theme.error}>
         Discard unsaved changes?
       </Text>
       <Text>You have unsaved edits. {verb} and lose them?</Text>
@@ -138,16 +185,26 @@ function ConfirmDiscard({
 
 export function App() {
   const { exit } = useApp();
+  const { stdin, setRawMode, isRawModeSupported } = useStdin();
   const size = useTerminalSize();
   const [state, dispatch] = useReducer(reducer, initialState);
   const clientRef = useRef<K8sClient | null>(null);
   const [ballTick, setBallTick] = useState(0);
+  // True while the terminal is handed to an interactive child (gcloud auth login).
+  const [suspended, setSuspended] = useState(false);
 
   useEffect(() => {
     if (!state.loading) return;
-    const id = setInterval(() => setBallTick((t) => t + 1), 40);
+    const id = setInterval(() => setBallTick((t) => t + 1), 60);
     return () => clearInterval(id);
   }, [state.loading]);
+
+  // Auto-clear info/success status so the help line reappears.
+  useEffect(() => {
+    if (!state.status || state.status.kind === 'error') return;
+    const id = setTimeout(() => dispatch({ type: 'setStatus', status: null }), 3000);
+    return () => clearTimeout(id);
+  }, [state.status]);
 
   const setError = (e: unknown): void =>
     dispatch({ type: 'setStatus', status: { kind: 'error', text: describeError(e) } });
@@ -221,7 +278,13 @@ export function App() {
     const ns = client.getContextNamespace(name);
     dispatch({ type: 'setCurrentNamespace', namespace: ns });
     await loadNamespaces();
-    if (ns) await loadSecrets(ns);
+    if (ns) {
+      await loadSecrets(ns);
+      const remembered = getPerContextSelection(name);
+      if (remembered && remembered.namespace === ns && remembered.secret) {
+        await loadSecret(ns, remembered.secret, false);
+      }
+    }
   }
 
   async function performSelectNamespace(name: string): Promise<void> {
@@ -346,24 +409,14 @@ export function App() {
   }, []);
 
   // ---- layout sizing ------------------------------------------------------
-  const toolbarHeight = 3;
-  const statusHeight = 4; // border adds 2 lines to 2-line status bar
+  const toolbarHeight = 2; // flat header: title + selectors/actions
+  const statusHeight = 2; // flat status: mode line + help/status line
   const middleRows = Math.max(4, size.rows - toolbarHeight - statusHeight);
   const showFilter = state.mode.kind === 'filter' || state.filter.length > 0;
-  // 2 (outer panel border) + 3 (filter with border, when shown) + 1 (header) + 1 (footer)
-  const listBodyRows = Math.max(1, middleRows - (showFilter ? 7 : 4));
-  const innerWidth = Math.max(20, size.columns - 4);
-  const borderInnerWidth = Math.max(0, size.columns - 2);
-  // Knight-rider block ~10% wide, bouncing within a centered zone (~30% of the border).
-  const ballW = Math.max(3, Math.floor(borderInnerWidth * 0.1));
-  const zoneW = Math.min(borderInnerWidth, ballW * 3);
-  const zoneStart = Math.floor((borderInnerWidth - zoneW) / 2);
-  const ballPos = (() => {
-    const travel = Math.max(1, zoneW - ballW);
-    const cycle = travel * 2;
-    const raw = ballTick % cycle;
-    return zoneStart + (raw <= travel ? raw : cycle - raw);
-  })();
+  // 2 rules + 1 list header + 1 footer (+1 filter line when shown)
+  const listBodyRows = Math.max(1, middleRows - (showFilter ? 5 : 4));
+  const innerWidth = Math.max(20, size.columns - 2);
+  const ruleW = Math.max(1, size.columns);
 
   useEffect(() => {
     dispatch({ type: 'setViewportRows', rows: listBodyRows });
@@ -451,6 +504,41 @@ export function App() {
     }
   };
 
+  /**
+   * Hand the terminal to an interactive `gcloud auth login`, then take it back
+   * and retry the action that failed. We drop raw mode + leave the alt-screen so
+   * gcloud can print its URL / open a browser, and keep `suspended` set so our
+   * own key handlers don't steal stdin while the child runs.
+   */
+  const runGcloudLogin = async (retry: RetryAction): Promise<void> => {
+    setSuspended(true);
+    dispatch({ type: 'closeMode' }); // unmount the auth modal so it stops reading input
+    if (isRawModeSupported) setRawMode(false);
+    stdin.pause();
+    process.stdout.write(LEAVE_ALT_SCREEN);
+    process.stdout.write('\nRunning: gcloud auth login\n\n');
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('gcloud', ['auth', 'login'], { stdio: 'inherit' });
+      child.on('error', () => resolve(-1));
+      child.on('exit', (c) => resolve(c ?? -1));
+    });
+
+    process.stdout.write(ENTER_ALT_SCREEN);
+    stdin.resume();
+    if (isRawModeSupported) setRawMode(true);
+    setSuspended(false);
+
+    if (code === 0) {
+      setInfo('Re-authenticated with gcloud — retrying…');
+      runRetry(retry);
+    } else if (code === -1) {
+      setError('Could not run gcloud — is it installed and on your PATH?');
+    } else {
+      setError(`gcloud auth login exited with code ${code}.`);
+    }
+  };
+
   const activateToolbar = (): void => {
     const control = TOOLBAR_CONTROLS[state.toolbarIndex];
     switch (control) {
@@ -529,6 +617,15 @@ export function App() {
     else void performSelectSecret(name);
   };
 
+  // ---- global theme shortcut (all non-text modes) ---------------------------
+  const isTextEditing = mode.kind === 'editName' || mode.kind === 'editValue' || mode.kind === 'filter';
+  useInput(
+    (input) => {
+      if (input === 'T') dispatch({ type: 'openThemeSelect' });
+    },
+    { isActive: !suspended && !isTextEditing && !state.loading },
+  );
+
   // ---- global input (browse only) ----------------------------------------
   useInput(
     (input, key) => {
@@ -577,7 +674,7 @@ export function App() {
       if (input === '[') return dispatch({ type: 'adjustNameColumn', delta: -1 });
       if (input === ']') return dispatch({ type: 'adjustNameColumn', delta: 1 });
     },
-    { isActive: mode.kind === 'browse' && !state.loading },
+    { isActive: mode.kind === 'browse' && !state.loading && !suspended },
   );
 
   // ---- render -------------------------------------------------------------
@@ -588,13 +685,28 @@ export function App() {
   const help =
     mode.kind === 'browse'
       ? state.focusZone === 'toolbar'
-        ? '←/→ select · Enter open/activate · Tab list · s save · r reload · x reset · q quit'
-        : '↑/↓ row · ←/→ col · Enter edit · Tab selectors · / search · n name · v value · a add · d del · s save · [/] col width · q quit'
+        ? '←/→ select · Enter open/activate · Tab list · s save · r reload · x reset · T theme · q quit'
+        : '↑/↓ row · ←/→ col · Enter edit · Tab selectors · / search · n name · v value · a add · d del · s save · [/] col width · T theme · q quit'
       : '';
 
   function renderMiddle(): React.ReactNode {
     const modalWidth = Math.floor(size.columns * 0.75);
     const modalHeight = Math.floor(middleRows * 0.85);
+
+    if (state.loading) {
+      const loadingW = Math.min(Math.floor(size.columns * 0.55), 52);
+      return (
+        <Box width="100%" height={middleRows} flexDirection="column" alignItems="center" justifyContent="center">
+          <LoadingModal
+            message={state.loadingMessage}
+            tick={ballTick}
+            width={loadingW}
+            onQuit={() => exit()}
+          />
+        </Box>
+      );
+    }
+
     switch (mode.kind) {
       case 'select': {
         const items =
@@ -674,7 +786,26 @@ export function App() {
             <AuthErrorModal
               message={mode.message}
               onRetry={() => runRetry(mode.retry)}
+              onLogin={() => void runGcloudLogin(mode.retry)}
               onDismiss={() => dispatch({ type: 'closeMode' })}
+            />
+          </CenteredModal>
+        );
+      case 'themeSelect':
+        return (
+          <CenteredModal height={middleRows}>
+            <SelectList
+              title="Theme"
+              items={THEME_NAMES.map((n) => ({ label: n, value: n }))}
+              currentValue={getCurrentThemeName()}
+              height={Math.min(THEME_NAMES.length + 4, modalHeight)}
+              onSelect={(name) => {
+                applyTheme(name);
+                saveThemeName(name);
+                dispatch({ type: 'closeMode' });
+                dispatch({ type: 'setStatus', status: { kind: 'info', text: `Theme: ${name}` } });
+              }}
+              onCancel={() => dispatch({ type: 'closeMode' })}
             />
           </CenteredModal>
         );
@@ -688,61 +819,40 @@ export function App() {
           </CenteredModal>
         );
       default: {
-        const focusColor = state.focusZone === 'list' ? 'cyan' : 'gray';
-        const right = Math.max(0, borderInnerWidth - ballPos - ballW);
-        const topBorder = state.loading ? (
-          <Box>
-            <Text color={focusColor}>{'╭' + '─'.repeat(ballPos)}</Text>
-            <Text bold color="white">{'▓'.repeat(ballW)}</Text>
-            <Text color={focusColor}>{'─'.repeat(right) + '╮'}</Text>
-          </Box>
-        ) : (
-          <Text color={focusColor}>{'╭' + '─'.repeat(borderInnerWidth) + '╮'}</Text>
-        );
         return (
           <Box flexDirection="column" flexGrow={1} width="100%">
-            {topBorder}
-            <Box
-              flexGrow={1}
-              borderStyle="round"
-              borderTop={false}
-              borderBottom={false}
-              borderColor={focusColor}
-            >
-              <Box flexDirection="column" flexGrow={1}>
-                {showFilter && (
-                  <FilterBar
-                    query={state.filter}
-                    active={mode.kind === 'filter'}
-                    matchCount={filteredEntries.length}
-                    total={state.entries.length}
-                    onChange={(v) => dispatch({ type: 'setFilter', value: v })}
-                    onSubmit={() => dispatch({ type: 'closeMode' })}
-                    onCancel={() => {
-                      dispatch({ type: 'setFilter', value: '' });
-                      dispatch({ type: 'closeMode' });
-                    }}
-                  />
-                )}
-                <SecretList
-                  entries={filteredEntries}
-                  original={state.original}
-                  selectedIndex={selectedIndex}
-                  rows={listBodyRows}
-                  width={innerWidth}
-                  focused={state.focusZone === 'list'}
-                  selectedColumn={state.selectedColumn}
-                  editingId={editingId}
-                  editingField={editingField}
-                  emptyHint={state.filter ? 'no entries match the search' : undefined}
-                  nameColumnOffset={state.nameColumnOffset}
-                  onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
-                  onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
-                  onCancelEdit={cancelEdit}
-                />
-              </Box>
-            </Box>
-            <Text color={focusColor}>{'╰' + '─'.repeat(borderInnerWidth) + '╯'}</Text>
+            <Text color={theme.border}>{'─'.repeat(ruleW)}</Text>
+            {showFilter && (
+              <FilterBar
+                query={state.filter}
+                active={mode.kind === 'filter'}
+                matchCount={filteredEntries.length}
+                total={state.entries.length}
+                onChange={(v) => dispatch({ type: 'setFilter', value: v })}
+                onSubmit={() => dispatch({ type: 'closeMode' })}
+                onCancel={() => {
+                  dispatch({ type: 'setFilter', value: '' });
+                  dispatch({ type: 'closeMode' });
+                }}
+              />
+            )}
+            <SecretList
+              entries={filteredEntries}
+              original={state.original}
+              selectedIndex={selectedIndex}
+              rows={listBodyRows}
+              width={innerWidth}
+              focused={state.focusZone === 'list'}
+              selectedColumn={state.selectedColumn}
+              editingId={editingId}
+              editingField={editingField}
+              emptyHint={state.filter ? 'no entries match the search' : undefined}
+              nameColumnOffset={state.nameColumnOffset}
+              onCommitName={(id, key) => dispatch({ type: 'commitName', entryId: id, key })}
+              onCommitValue={(id, value) => dispatch({ type: 'commitValue', entryId: id, value })}
+              onCancelEdit={cancelEdit}
+            />
+            <Text color={theme.border}>{'─'.repeat(ruleW)}</Text>
           </Box>
         );
       }

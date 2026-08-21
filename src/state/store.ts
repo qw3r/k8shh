@@ -43,7 +43,8 @@ export type Mode =
   | { kind: 'confirmSave' }
   | { kind: 'confirmDiscard'; pending: PendingAction }
   | { kind: 'authError'; message: string; retry: RetryAction }
-  | { kind: 'restartProgress'; items: RestartItem[] };
+  | { kind: 'restartProgress'; items: RestartItem[] }
+  | { kind: 'themeSelect' };
 
 export interface AppState {
   // cluster selection
@@ -121,6 +122,7 @@ export type Action =
   | { type: 'openFilter' }
   | { type: 'setViewportRows'; rows: number }
   | { type: 'openSelect'; which: SelectKind }
+  | { type: 'openThemeSelect' }
   | { type: 'closeMode' }
   | { type: 'beginEditName'; entryId: string }
   | { type: 'beginEditValue'; entryId: string }
@@ -245,6 +247,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'openSelect':
       return { ...state, mode: { kind: 'select', which: action.which } };
+
+    case 'openThemeSelect':
+      return { ...state, mode: { kind: 'themeSelect' } };
 
     case 'closeMode':
       return { ...state, mode: { kind: 'browse' } };

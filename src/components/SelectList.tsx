@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { theme } from '../theme.js';
 
 export interface SelectItem {
   label: string;
@@ -62,7 +63,7 @@ export function SelectList({
       if (key.ctrl || key.meta || key.tab) return;
       if (input) {
         const clean = input.replace(/[\r\n]/g, '');
-        if (clean.length === 0) return;
+        if (clean.length === 0 || clean === 'T') return; // T reserved for theme cycling
         setQuery((q) => q + clean);
         setIndex(0);
       }
@@ -74,11 +75,11 @@ export function SelectList({
   const visible = filtered.slice(start, start + height);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} width="100%">
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} width="100%">
+      <Text bold color={theme.accent}>
         {title}
       </Text>
-      <Text dimColor>filter: {query.length > 0 ? query : '(type to filter)'}</Text>
+      <Text dimColor>/ {query.length > 0 ? query : <Text dimColor>type to filter</Text>}</Text>
       {visible.length === 0 ? (
         <Text dimColor>no matches</Text>
       ) : (
@@ -96,9 +97,7 @@ export function SelectList({
           );
         })
       )}
-      <Text dimColor>
-        {filtered.length} item{filtered.length === 1 ? '' : 's'} · ↑/↓ move · Enter select · Esc cancel
-      </Text>
+      <Text dimColor>{filtered.length} item{filtered.length === 1 ? '' : 's'} · ↑/↓ · Enter · Esc</Text>
     </Box>
   );
 }
